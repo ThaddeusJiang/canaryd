@@ -20,5 +20,7 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-mac_health-*.tar
+canaryd-*.tar
 
+/com.thaddeusjiang.canaryd.plist
+/canaryd

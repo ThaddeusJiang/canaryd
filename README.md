@@ -2,55 +2,74 @@
 
 > Canary in the coal mine for your Mac.
 
-Mac 健康监控：过热/资源 + **软件"哑掉"检测**（进程活着但功能停摆，如 CleanClip 停止记录剪贴板）。
-每次功能探针都是一只金丝雀：往系统里丢一个无害探子，它没活着回来，就说明环境出问题了。
+macOS health monitor that detects **overheating** and **apps that are alive but silently dead** (process running, function stopped — e.g. CleanClip stops recording the clipboard). Self-heals via quiet restarts; only notifies the user when a target is confirmed `blocked`.
 
-纯 Elixir/OTP 实现，零外部依赖，存储用 DETS。
+Pure Elixir/OTP, zero runtime dependencies, DETS storage, launchd-scheduled.
 
-## 安装
+## Requirements
+
+- macOS (Apple Silicon or Intel)
+- Erlang/OTP + Elixir (any recent version; `~> 1.15`)
+
+## Install
 
 ```sh
 mix escript.install hex canaryd
 ```
 
-## 三层健康模型
+That's it. The first time any `canaryd` command runs, it automatically registers a launchd agent that runs `canaryd check` every 5 minutes. If the agent is ever deleted, the next `canaryd` invocation re-creates it. No manual plist setup is ever needed.
 
-- **L1 系统层**：热节流（`pmset -g therm`）、load/核数、内存压力。连续 3 轮超标才通知。
-- **L2 进程层**：CleanClip 进程存活，死了静默拉起。
-- **L3 功能层**：合成探针 —— 写入剪贴板 → 等 4s → 检查 CleanClip 历史目录是否有新文件。
-
-**空闲跳过**：键盘/鼠标 >30min 无操作（`ioreg HIDIdleTime`）时只记录 L1，跳过功能探针。
-
-## 重启纪律
-
-探针失败 → **静默自动重启**（不打扰用户），1 小时冷却防重启风暴；冷却期内连续 3 轮失败 → 标记 `blocked` 并发 macOS 通知（此时才打扰）。恢复自动记录 `recovered` 事件。
-
-## 使用
+## Usage
 
 ```sh
-mix escript.build          # 产出 ./canaryd
-./canaryd check         # 跑一轮巡检（launchd 每 5 分钟自动执行）
-./canaryd status        # 当前健康快照 + 最近事件
-./canaryd history       # CleanClip 事件时间线
+canaryd check              # run one check round (launchd does this automatically)
+canaryd status             # current health snapshot + recent events
+canaryd history [target]   # event timeline (default: cleanclip)
+canaryd install            # force (re)install of the launchd agent (normally automatic)
+canaryd uninstall          # remove the launchd agent
 ```
 
-## 数据
+### Example: `canaryd status`
 
-`~/Library/Application Support/canaryd/`
+```
+cleanclip: ok | last_probe=ok failures=0 | last_restart=- | updated=2026-07-26 01:00:00
+system: ok | last_probe=ok failures=0 | last_restart=- | updated=2026-07-26 01:00:00
 
-- `state.dets` — 各目标最新状态机快照
-- `events.dets` — 追加式事件日志（probe_fail / restarted / blocked / recovered / system_warn / skipped_idle）
+recent events:
+  2026-07-26 00:42:19  cleanclip  restarted
+```
 
-## launchd
+## How it works
 
-`com.thaddeusjiang.canaryd.plist` 已安装到 `~/Library/LaunchAgents/`，`StartInterval=300`。
+Three-layer health model:
 
-重载：`launchctl bootout gui/$(id -u)/com.thaddeusjiang.canaryd && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.thaddeusjiang.canaryd.plist`
+| Layer | What | Detection |
+|---|---|---|
+| L1 system | thermal throttling, load, memory pressure | `pmset -g therm`, `sysctl vm.loadavg`, `memory_pressure`; warns after 3 consecutive rounds |
+| L2 process | CleanClip process alive | `pgrep`; relaunches silently if dead |
+| L3 function | CleanClip actually recording | synthetic probe: writes clipboard → verifies a new history file appears |
 
-注意：重新 `mix escript.build` 后无需重装 plist（路径不变）。
+**Idle skip:** when keyboard/mouse has been idle > 30 min (`ioreg HIDIdleTime`), only L1 is recorded — silence while the user is away is normal.
 
-## 测试
+**Restart discipline:** probe failure → silent auto-restart (1 h cooldown, no user interruption); 3 consecutive failures within cooldown → status `blocked` + macOS notification (the only time the user is bothered). Recovery is logged automatically.
+
+## Data
+
+All state lives in `~/Library/Application Support/canaryd/`:
+
+- `state.dets` — latest state-machine snapshot per target
+- `events.dets` — append-only event log (`probe_fail` / `restarted` / `blocked` / `recovered` / `system_warn` / `skipped_idle`)
+- `stdout.log` / `stderr.log` — launchd output
+
+## Development
 
 ```sh
-mix test   # 状态机转移逻辑
+git clone https://github.com/ThaddeusJiang/canaryd
+cd canaryd
+mix test               # state machine unit tests
+mix escript.build      # produces ./canaryd for local runs
 ```
+
+## License
+
+MIT

@@ -1,10 +1,16 @@
 defmodule Canaryd.CLI do
-  @moduledoc "escript entry: check | status | history [target]"
+  @moduledoc "escript entry: check | status | history [target] | install | uninstall"
 
-  alias Canaryd.{Checker, Store, System}
+  alias Canaryd.{Checker, Setup, Store, System}
   alias Canaryd.Apps.CleanClip
 
-  def main(["check"]) do
+  def main(argv) do
+    # launchd is an implementation detail: self-heal on every invocation
+    unless argv == ["uninstall"], do: Setup.ensure_installed()
+    dispatch(argv)
+  end
+
+  defp dispatch(["check"]) do
     case Checker.run() do
       {:error, :locked} ->
         IO.puts("another check is running, skipping")
@@ -19,7 +25,7 @@ defmodule Canaryd.CLI do
     end
   end
 
-  def main(["status"]) do
+  defp dispatch(["status"]) do
     idle = System.idle_seconds()
 
     Store.with_tables(fn state, events ->
@@ -41,9 +47,9 @@ defmodule Canaryd.CLI do
     IO.puts("user idle: #{idle}s")
   end
 
-  def main(["history"]), do: main(["history", "cleanclip"])
+  defp dispatch(["history"]), do: dispatch(["history", "cleanclip"])
 
-  def main(["history", target]) do
+  defp dispatch(["history", target]) do
     target_atom = String.to_atom(target)
 
     Store.with_tables(fn _state, events ->
@@ -56,14 +62,28 @@ defmodule Canaryd.CLI do
     end)
   end
 
-  def main(_argv) do
+  defp dispatch(["install"]) do
+    case Setup.install() do
+      :ok -> IO.puts("launchd agent installed (#{Setup.label()})")
+      {:error, err} -> IO.puts("install failed: #{err}")
+    end
+  end
+
+  defp dispatch(["uninstall"]) do
+    Setup.uninstall()
+    IO.puts("launchd agent removed")
+  end
+
+  defp dispatch(_argv) do
     IO.puts("""
     canaryd - Mac health monitor
 
     usage:
-      canaryd check              run one check round (used by launchd)
+      canaryd check              run one check round (launchd does this every 5 min)
       canaryd status             current health snapshot
       canaryd history [target]   event timeline (default: cleanclip)
+      canaryd install            (re)install the launchd agent (usually automatic)
+      canaryd uninstall          remove the launchd agent
     """)
   end
 
