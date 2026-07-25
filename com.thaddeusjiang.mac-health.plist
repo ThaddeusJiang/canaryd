@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.thaddeusjiang.mac-health</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/amami/git/mac_health/mac_health</string>
+    <string>check</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/amami/Library/Application Support/mac-health/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/amami/Library/Application Support/mac-health/stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/amami/.local/share/mise/installs/erlang/28.1.1/bin:/Users/amami/.local/share/mise/installs/elixir/1.19.5-otp-28/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
