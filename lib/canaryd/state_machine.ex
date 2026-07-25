@@ -1,4 +1,4 @@
-defmodule MacHealth.StateMachine do
+defmodule Canaryd.StateMachine do
   @moduledoc """
   Pure transition logic for per-target health. Testable without side effects.
 

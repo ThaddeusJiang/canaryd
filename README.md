@@ -1,8 +1,17 @@
-# mac_health
+# canaryd 🐤
+
+> Canary in the coal mine for your Mac.
 
 Mac 健康监控：过热/资源 + **软件"哑掉"检测**（进程活着但功能停摆，如 CleanClip 停止记录剪贴板）。
+每次功能探针都是一只金丝雀：往系统里丢一个无害探子，它没活着回来，就说明环境出问题了。
 
 纯 Elixir/OTP 实现，零外部依赖，存储用 DETS。
+
+## 安装
+
+```sh
+mix escript.install hex canaryd
+```
 
 ## 三层健康模型
 
@@ -19,24 +28,24 @@ Mac 健康监控：过热/资源 + **软件"哑掉"检测**（进程活着但功
 ## 使用
 
 ```sh
-mix escript.build          # 产出 ./mac_health
-./mac_health check         # 跑一轮巡检（launchd 每 5 分钟自动执行）
-./mac_health status        # 当前健康快照 + 最近事件
-./mac_health history       # CleanClip 事件时间线
+mix escript.build          # 产出 ./canaryd
+./canaryd check         # 跑一轮巡检（launchd 每 5 分钟自动执行）
+./canaryd status        # 当前健康快照 + 最近事件
+./canaryd history       # CleanClip 事件时间线
 ```
 
 ## 数据
 
-`~/Library/Application Support/mac-health/`
+`~/Library/Application Support/canaryd/`
 
 - `state.dets` — 各目标最新状态机快照
 - `events.dets` — 追加式事件日志（probe_fail / restarted / blocked / recovered / system_warn / skipped_idle）
 
 ## launchd
 
-`com.thaddeusjiang.mac-health.plist` 已安装到 `~/Library/LaunchAgents/`，`StartInterval=300`。
+`com.thaddeusjiang.canaryd.plist` 已安装到 `~/Library/LaunchAgents/`，`StartInterval=300`。
 
-重载：`launchctl bootout gui/$(id -u)/com.thaddeusjiang.mac-health && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.thaddeusjiang.mac-health.plist`
+重载：`launchctl bootout gui/$(id -u)/com.thaddeusjiang.canaryd && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.thaddeusjiang.canaryd.plist`
 
 注意：重新 `mix escript.build` 后无需重装 plist（路径不变）。
 

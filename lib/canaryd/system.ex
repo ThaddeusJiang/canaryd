@@ -1,4 +1,4 @@
-defmodule MacHealth.System do
+defmodule Canaryd.System do
   @moduledoc """
   L1 system-level health: thermal throttling, load, memory pressure,
   and user idle detection (keyboard/mouse via IOHIDSystem HIDIdleTime).

@@ -1,4 +1,4 @@
-defmodule MacHealth.Apps.CleanClip do
+defmodule Canaryd.Apps.CleanClip do
   @moduledoc """
   CleanClip health: L2 process liveness + L3 functional clipboard probe.
 
@@ -39,7 +39,7 @@ defmodule MacHealth.Apps.CleanClip do
   """
   def probe do
     before = latest_mtime()
-    marker = "mac-health-probe-#{System.unique_integer([:positive])}"
+    marker = "canaryd-probe-#{System.unique_integer([:positive])}"
 
     {_, 0} = System.cmd("osascript", ["-e", "set the clipboard to \"#{marker}\""], stderr_to_stdout: true)
     Process.sleep(@probe_wait_ms)

@@ -1,8 +1,8 @@
-defmodule MacHealth.Store do
+defmodule Canaryd.Store do
   @moduledoc """
   DETS-backed persistent state.
 
-  Two tables live under `~/Library/Application Support/mac-health/`:
+  Two tables live under `~/Library/Application Support/canaryd/`:
 
     * `state.dets`  - latest state machine snapshot per target
       key: target name (atom), value: map
@@ -12,8 +12,8 @@ defmodule MacHealth.Store do
   Each CLI run opens the tables, does its work, syncs and closes.
   """
 
-  @dir Path.expand("~/Library/Application Support/mac-health")
-  @lockfile Path.join(@dir, "mac_health.lock")
+  @dir Path.expand("~/Library/Application Support/canaryd")
+  @lockfile Path.join(@dir, "canaryd.lock")
 
   def dir, do: @dir
 

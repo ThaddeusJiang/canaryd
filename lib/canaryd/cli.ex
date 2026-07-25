@@ -1,8 +1,8 @@
-defmodule MacHealth.CLI do
+defmodule Canaryd.CLI do
   @moduledoc "escript entry: check | status | history [target]"
 
-  alias MacHealth.{Checker, Store, System}
-  alias MacHealth.Apps.CleanClip
+  alias Canaryd.{Checker, Store, System}
+  alias Canaryd.Apps.CleanClip
 
   def main(["check"]) do
     case Checker.run() do
@@ -58,12 +58,12 @@ defmodule MacHealth.CLI do
 
   def main(_argv) do
     IO.puts("""
-    mac_health - Mac health monitor
+    canaryd - Mac health monitor
 
     usage:
-      mac_health check              run one check round (used by launchd)
-      mac_health status             current health snapshot
-      mac_health history [target]   event timeline (default: cleanclip)
+      canaryd check              run one check round (used by launchd)
+      canaryd status             current health snapshot
+      canaryd history [target]   event timeline (default: cleanclip)
     """)
   end
 

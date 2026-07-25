@@ -1,7 +1,7 @@
-defmodule MacHealth.StateMachineTest do
+defmodule Canaryd.StateMachineTest do
   use ExUnit.Case, async: true
 
-  alias MacHealth.{StateMachine, Store}
+  alias Canaryd.{StateMachine, Store}
 
   @t0 ~U[2026-07-26 00:00:00Z]
 

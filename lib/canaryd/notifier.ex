@@ -1,4 +1,4 @@
-defmodule MacHealth.Notifier do
+defmodule Canaryd.Notifier do
   @moduledoc "macOS Notification Center. Used ONLY when user attention is required."
 
   def notify(title, message) do

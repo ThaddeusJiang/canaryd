@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.thaddeusjiang.mac-health</string>
+  <string>com.thaddeusjiang.canaryd</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/amami/git/mac_health/mac_health</string>
+    <string>/Users/amami/git/canaryd/canaryd</string>
     <string>check</string>
   </array>
   <key>StartInterval</key>
@@ -14,9 +14,9 @@
   <key>RunAtLoad</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/amami/Library/Application Support/mac-health/stdout.log</string>
+  <string>/Users/amami/Library/Application Support/canaryd/stdout.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/amami/Library/Application Support/mac-health/stderr.log</string>
+  <string>/Users/amami/Library/Application Support/canaryd/stderr.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

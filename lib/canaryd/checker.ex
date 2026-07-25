@@ -1,4 +1,4 @@
-defmodule MacHealth.Checker do
+defmodule Canaryd.Checker do
   @moduledoc """
   One full health-check round:
 
@@ -9,8 +9,8 @@ defmodule MacHealth.Checker do
        notify only when blocked.
   """
 
-  alias MacHealth.{Notifier, StateMachine, Store, System}
-  alias MacHealth.Apps.CleanClip
+  alias Canaryd.{Notifier, StateMachine, Store, System}
+  alias Canaryd.Apps.CleanClip
 
   @idle_skip_sec 1_800
 
