@@ -58,24 +58,11 @@ defmodule MacHealth.Apps.CleanClip do
     end
   end
 
+  # The directory's own mtime bumps whenever CleanClip adds a history item.
+  # (47k+ files inside; stat-ing each file would be slow and sampling is flaky.)
   defp latest_mtime do
-    with true <- File.dir?(@history_dir),
-         {:ok, files} <- File.ls(@history_dir) do
-      files
-      |> Enum.take(5_000)
-      |> Enum.map(&Path.join(@history_dir, &1))
-      |> Enum.flat_map(fn path ->
-        case File.stat(path, time: :posix) do
-          {:ok, %{mtime: mtime, type: :regular}} -> [mtime]
-          _ -> []
-        end
-      end)
-      |> Enum.max(fn -> nil end)
-      |> case do
-        nil -> nil
-        posix -> DateTime.from_unix!(posix)
-      end
-    else
+    case File.stat(@history_dir, time: :posix) do
+      {:ok, %{mtime: mtime}} -> DateTime.from_unix!(mtime)
       _ -> nil
     end
   end
