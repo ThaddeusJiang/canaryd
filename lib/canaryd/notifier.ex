@@ -1,10 +1,60 @@
 defmodule Canaryd.Notifier do
-  @moduledoc "macOS Notification Center. Used ONLY when user attention is required."
+  @moduledoc "macOS notifications and action dialogs. Used only when user attention is required."
+
+  @action_timeout_sec 120
+
+  @action_script """
+  on run argv
+    set processName to item 1 of argv
+
+    try
+      set response to display alert "Mac Health" message (processName & " is not responding." & return & return & "Close or Restart can force-stop this instance. macOS opens the service again when needed.") as warning buttons {"Ignore", "Close", "Restart"} default button "Restart" cancel button "Ignore" giving up after #{@action_timeout_sec}
+
+      if gave up of response then
+        return "ignore"
+      end if
+
+      set selectedButton to button returned of response
+
+      if selectedButton is "Restart" then
+        return "restart"
+      else if selectedButton is "Close" then
+        return "close"
+      else
+        return "ignore"
+      end if
+    on error number -128
+      return "ignore"
+    end try
+  end run
+  """
 
   def notify(title, message) do
-    script = ~s(display notification "#{escape(message)}" with title "#{escape(title)}" sound name "Glass")
+    script =
+      ~s(display notification "#{escape(message)}" with title "#{escape(title)}" sound name "Glass")
+
     System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
     :ok
+  end
+
+  @doc "Shows a time-limited Close, Restart, or Ignore action dialog."
+  def choose_app_action(process_name) do
+    case System.cmd("osascript", ["-e", @action_script, process_name], stderr_to_stdout: true) do
+      {output, 0} -> parse_app_action(output)
+      {_output, _status} -> {:error, :dialog_failed}
+    end
+  rescue
+    _ -> {:error, :dialog_failed}
+  end
+
+  @doc false
+  def parse_app_action(output) do
+    case String.trim(output) do
+      "restart" -> {:ok, :restart}
+      "close" -> {:ok, :close}
+      "ignore" -> {:ok, :ignore}
+      _other -> {:error, :invalid_action}
+    end
   end
 
   defp escape(s), do: String.replace(s, "\"", "\\\"")

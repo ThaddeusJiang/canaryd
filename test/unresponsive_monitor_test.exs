@@ -11,11 +11,24 @@ defmodule Canaryd.UnresponsiveMonitorTest do
         id: "com.example.writer",
         name: "Writer",
         pid: 42,
+        recovery: :automatic,
         bundle_id: "com.example.writer",
         bundle_path: "/Applications/Writer.app"
       },
       overrides
     )
+  end
+
+  defp interactive_service do
+    %{
+      id: "com.apple.TextInputUI.xpc.CursorUIViewService",
+      name: "CursorUIViewService",
+      pid: 805,
+      recovery: :interactive,
+      bundle_id: "com.apple.TextInputUI.xpc.CursorUIViewService",
+      bundle_path:
+        "/System/Library/PrivateFrameworks/TextInputUIMacHelper.framework/Versions/A/XPCServices/CursorUIViewService.xpc"
+    }
   end
 
   test "requires two consecutive observations before restart" do
@@ -50,6 +63,7 @@ defmodule Canaryd.UnresponsiveMonitorTest do
       UnresponsiveMonitor.default_state()
       | observations: %{app().id => %{app: app(), count: 1}},
         restarts: %{app().id => previous_restart},
+        prompts: %{interactive_service().id => previous_restart},
         blocked: MapSet.new([app().id])
     }
 
@@ -57,7 +71,59 @@ defmodule Canaryd.UnresponsiveMonitorTest do
 
     assert UnresponsiveMonitor.pending_apps(reset_state) == []
     assert reset_state.restarts == %{app().id => previous_restart}
+    assert reset_state.prompts == %{interactive_service().id => previous_restart}
     assert reset_state.blocked == MapSet.new([app().id])
+  end
+
+  test "asks the user after two interactive service observations" do
+    {state, [{:detected, _service, 1}]} =
+      UnresponsiveMonitor.evaluate(
+        UnresponsiveMonitor.default_state(),
+        [interactive_service()],
+        @t0
+      )
+
+    {state, actions} =
+      UnresponsiveMonitor.evaluate(
+        state,
+        [interactive_service()],
+        DateTime.add(@t0, 300, :second)
+      )
+
+    assert actions == [{:choose, interactive_service()}]
+    assert UnresponsiveMonitor.pending_apps(state) == []
+  end
+
+  test "does not repeat an interactive prompt during cooldown" do
+    {state, _actions} =
+      UnresponsiveMonitor.evaluate(
+        UnresponsiveMonitor.default_state(),
+        [interactive_service()],
+        @t0
+      )
+
+    {state, [{:choose, _service}]} =
+      UnresponsiveMonitor.evaluate(
+        state,
+        [interactive_service()],
+        DateTime.add(@t0, 300, :second)
+      )
+
+    {state, [{:detected, _service, 1}]} =
+      UnresponsiveMonitor.evaluate(
+        state,
+        [interactive_service()],
+        DateTime.add(@t0, 600, :second)
+      )
+
+    {_state, actions} =
+      UnresponsiveMonitor.evaluate(
+        state,
+        [interactive_service()],
+        DateTime.add(@t0, 900, :second)
+      )
+
+    assert actions == []
   end
 
   test "blocks one repeated hang during restart cooldown" do

@@ -6,11 +6,14 @@ defmodule Canaryd.UnresponsiveMonitor do
   @confirmation_count 2
   @restart_cooldown_sec 3_600
   @restart_retention_sec 86_400
+  @prompt_cooldown_sec 3_600
+  @prompt_retention_sec 86_400
 
   def default_state do
     %{
       observations: %{},
       restarts: %{},
+      prompts: %{},
       blocked: MapSet.new()
     }
   end
@@ -18,8 +21,8 @@ defmodule Canaryd.UnresponsiveMonitor do
   @doc """
   Evaluates one scan and returns `{new_state, actions}`.
 
-  Actions are `{:detected, app, count}`, `{:restart, app}`, or
-  `{:blocked, app}`.
+  Actions are `{:detected, app, count}`, `{:restart, app}`, `{:choose, app}`,
+  or `{:blocked, app}`.
   """
   def evaluate(state, apps, now) do
     state = normalize_state(state, now)
@@ -53,6 +56,7 @@ defmodule Canaryd.UnresponsiveMonitor do
     %{
       observations: %{},
       restarts: Map.get(state, :restarts, %{}),
+      prompts: Map.get(state, :prompts, %{}),
       blocked: Map.get(state, :blocked, MapSet.new())
     }
   end
@@ -69,6 +73,19 @@ defmodule Canaryd.UnresponsiveMonitor do
 
         {%{state | observations: Map.put(state.observations, app.id, observation)},
          {:detected, app, count}}
+
+      app.recovery == :interactive and prompt_allowed?(state, app.id, now) ->
+        next_state = %{
+          state
+          | observations: Map.delete(state.observations, app.id),
+            prompts: Map.put(state.prompts, app.id, now)
+        }
+
+        {next_state, {:choose, app}}
+
+      app.recovery == :interactive ->
+        observation = %{app: app, count: count}
+        {%{state | observations: Map.put(state.observations, app.id, observation)}, nil}
 
       restart_allowed?(state, app.id, now) ->
         next_state = %{
@@ -104,18 +121,32 @@ defmodule Canaryd.UnresponsiveMonitor do
     end
   end
 
+  defp prompt_allowed?(state, id, now) do
+    case Map.get(state.prompts, id) do
+      nil -> true
+      last_prompt -> DateTime.diff(now, last_prompt, :second) >= @prompt_cooldown_sec
+    end
+  end
+
   defp normalize_state(state, now) do
     defaults = default_state()
     restarts = Map.get(state, :restarts, defaults.restarts)
+    prompts = Map.get(state, :prompts, defaults.prompts)
 
     recent_restarts =
       Map.filter(restarts, fn {_id, restarted_at} ->
         DateTime.diff(now, restarted_at, :second) < @restart_retention_sec
       end)
 
+    recent_prompts =
+      Map.filter(prompts, fn {_id, prompted_at} ->
+        DateTime.diff(now, prompted_at, :second) < @prompt_retention_sec
+      end)
+
     %{
       observations: Map.get(state, :observations, defaults.observations),
       restarts: recent_restarts,
+      prompts: recent_prompts,
       blocked: Map.get(state, :blocked, defaults.blocked)
     }
   end
