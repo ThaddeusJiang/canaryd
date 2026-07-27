@@ -103,7 +103,7 @@ Automatic termination can discard unsaved data. Confirmation and cooldown limits
 
 ## Cross-Spec Links
 
-- None.
+- [002 CleanClip Health Probe](./002-cleanclip-health-probe.md)
 
 ## Open Questions
 

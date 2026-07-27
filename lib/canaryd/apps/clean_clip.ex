@@ -2,10 +2,12 @@ defmodule Canaryd.Apps.CleanClip do
   @moduledoc """
   CleanClip health: L2 process liveness + L3 functional clipboard probe.
 
-  The probe performs a synthetic transaction: write a marker string to the
-  pasteboard via pbcopy, wait, then check that a new file appeared in
-  CleanClip's history directory.
+  The probe performs a reversible transaction: save the pasteboard, write a
+  marker, wait, restore unchanged content, and check that a new file appeared
+  in CleanClip's history directory.
   """
+
+  alias Canaryd.Pasteboard
 
   @app_name "CleanClip"
   @process_pattern "/Applications/CleanClip.app/Contents/MacOS/CleanClip"
@@ -41,21 +43,22 @@ defmodule Canaryd.Apps.CleanClip do
     before = latest_mtime()
     marker = "canaryd-probe-#{System.unique_integer([:positive])}"
 
-    {_, 0} = System.cmd("osascript", ["-e", "set the clipboard to \"#{marker}\""], stderr_to_stdout: true)
-    Process.sleep(@probe_wait_ms)
+    case Pasteboard.probe(marker, @probe_wait_ms) do
+      :ok ->
+        probe_result(before, latest_mtime())
 
-    after_mtime = latest_mtime()
-
-    cond do
-      is_nil(after_mtime) ->
-        {:fail, :history_dir_unreadable}
-
-      is_nil(before) or DateTime.compare(after_mtime, before) == :gt ->
-        :ok
-
-      true ->
-        {:fail, :no_new_history_item}
+      {:error, reason} ->
+        {:fail, reason}
     end
+  end
+
+  defp probe_result(_before, nil), do: {:fail, :history_dir_unreadable}
+  defp probe_result(nil, _after_mtime), do: :ok
+
+  defp probe_result(before, after_mtime) do
+    if DateTime.compare(after_mtime, before) == :gt,
+      do: :ok,
+      else: {:fail, :no_new_history_item}
   end
 
   # The directory's own mtime bumps whenever CleanClip adds a history item.
