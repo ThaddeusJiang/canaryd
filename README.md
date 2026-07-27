@@ -46,6 +46,7 @@ Health model:
 | Layer | What | Detection |
 |---|---|---|
 | L1 system | thermal throttling, load, memory pressure | `pmset -g therm`, `sysctl vm.loadavg`, `memory_pressure`; warns after 3 consecutive rounds |
+| Heat source | battery temperature and high-CPU process correlation | `ioreg`, `ps`; asks after 2 consecutive rounds |
 | GUI response | supported process marked Not Responding | reads the WindowServer state used by Force Quit |
 | Process | CleanClip process alive | `pgrep`; relaunches silently if dead |
 | Function | CleanClip actually recording | reversible clipboard probe → verifies a new history file appears |
@@ -55,6 +56,8 @@ Health model:
 **Clipboard safety:** the CleanClip probe saves every current pasteboard item and data type. It restores that snapshot after the probe only when no newer pasteboard write occurred. A user copy during the probe always wins.
 
 **GUI app restart discipline:** a third-party, user-visible app must be marked Not Responding in two consecutive rounds. Canaryd then stops and opens the app in the background. Each app has a 1 h restart cooldown. Apple system apps, daemons, and helper processes are excluded unless listed below. Automatic termination can discard unsaved data.
+
+**Thermal process actions:** Canaryd reads the battery temperature when macOS exposes it. It also checks thermal throttling and load. During sustained thermal pressure, it lists up to five processes that use at least 20% CPU. CPU use is correlation evidence, not exact heat attribution. After the same third-party app leads two rounds, Canaryd asks you to close, restart, or ignore it. It never offers these actions for Apple apps, system services, or processes without a safe app bundle. Each app has a 1 h prompt cooldown.
 
 **Cursor UI service:** `CursorUIViewService` is an explicitly supported Apple text-input service. After two consecutive Not Responding rounds, Canaryd sends a notification and shows a 120 s action dialog. The user can ignore, close, or restart the service. Close or Restart can force-stop the current instance. Restart waits for launchd or an XPC client to start a new PID. macOS can open the service again when needed. The prompt has a 1 h cooldown.
 
@@ -67,7 +70,7 @@ The Force Quit state has no public macOS API. Canaryd resolves the macOS interfa
 All state lives in `~/Library/Application Support/canaryd/`:
 
 - `state.dets` — latest state-machine snapshot per target
-- `events.dets` — append-only event log (`hang_detected` / `closed` / `ignored` / `action_failed` / `restart_failed` / `probe_fail` / `restarted` / `blocked` / `recovered` / `system_warn` / `skipped_idle`)
+- `events.dets` — append-only event log for app, thermal, system, and probe actions
 - `stdout.log` / `stderr.log` — launchd output
 
 ## Development
