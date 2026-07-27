@@ -8,6 +8,41 @@ defmodule Canaryd.SystemThermalTest do
     assert System.parse_battery_temperature(output) == 40.0
   end
 
+  test "uses CPU or GPU sensor temperature for chip thermal pressure" do
+    refute System.chip_temperature_pressure?(%{
+             cpu_temperature_c: 69.9,
+             gpu_temperature_c: 69.9
+           })
+
+    assert System.chip_temperature_pressure?(%{
+             cpu_temperature_c: 70.0,
+             gpu_temperature_c: 60.0
+           })
+
+    assert System.chip_temperature_pressure?(%{
+             cpu_temperature_c: 60.0,
+             gpu_temperature_c: 70.0
+           })
+  end
+
+  test "formats exact sensor temperatures separately from battery temperature" do
+    assert System.temperature_summary(%{
+             temperature_source: :macmon,
+             cpu_temperature_c: 71.2,
+             gpu_temperature_c: 68.9,
+             battery_temperature_c: 40.5
+           }) == "CPU 71.2 C; GPU 68.9 C; battery 40.5 C"
+  end
+
+  test "reports unavailable chip sensors without hiding battery temperature" do
+    assert System.temperature_summary(%{
+             temperature_source: :unavailable,
+             cpu_temperature_c: nil,
+             gpu_temperature_c: nil,
+             battery_temperature_c: 40.5
+           }) == "CPU/GPU temperature unavailable; battery 40.5 C"
+  end
+
   test "parses high CPU processes and protects system processes" do
     output = """
       42   501  88.5 /Applications/Render.app/Contents/MacOS/Render

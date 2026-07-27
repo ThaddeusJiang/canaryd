@@ -2,7 +2,7 @@ defmodule Canaryd.Checker do
   @moduledoc """
   One full health-check round:
 
-    1. L1 system: thermal / load / memory
+    1. L1 system: CPU/GPU temperature / thermal / load / memory
     2. Scan the macOS unresponsive state for third-party GUI apps
     3. User idle > 30min? -> skip the CleanClip probe
     4. L2 CleanClip process liveness (relaunch silently if dead)
@@ -47,31 +47,48 @@ defmodule Canaryd.Checker do
       )
 
     Store.put_state(state, :thermal_processes, new_monitor_state)
-    results = Enum.map(actions, &run_thermal_action(events, &1))
+    results = Enum.map(actions, &run_thermal_action(events, &1, sys))
 
     %{pressure: sys.thermal_pressure, suspects: sys.hot_processes, actions: results}
   end
 
-  defp run_thermal_action(events, {:detected, process, suspects}) do
-    details = Map.put(process_details(process), :suspects, suspect_details(suspects))
+  defp run_thermal_action(events, {:detected, process, suspects}, sys) do
+    details =
+      process
+      |> process_details()
+      |> Map.put(:suspects, suspect_details(suspects))
+      |> Map.put(:temperatures, temperature_details(sys))
+
     Store.log_event(events, :thermal, :heat_suspect_detected, details)
     :detected
   end
 
-  defp run_thermal_action(events, {:report, suspects}) do
+  defp run_thermal_action(events, {:report, suspects}, sys) do
     Store.log_event(events, :thermal, :heat_suspects_reported, %{
-      suspects: suspect_details(suspects)
+      suspects: suspect_details(suspects),
+      temperatures: temperature_details(sys)
     })
 
-    Notifier.notify("Mac Health", "High temperature pressure: #{suspect_summary(suspects)}")
+    Notifier.notify(
+      "Mac Health",
+      "#{System.temperature_summary(sys)}; suspects: #{suspect_summary(suspects)}"
+    )
+
     :reported
   end
 
-  defp run_thermal_action(events, {:choose, process, suspects}) do
-    details = Map.put(process_details(process), :suspects, suspect_details(suspects))
+  defp run_thermal_action(events, {:choose, process, suspects}, sys) do
+    details =
+      process
+      |> process_details()
+      |> Map.put(:suspects, suspect_details(suspects))
+      |> Map.put(:temperatures, temperature_details(sys))
+
     Store.log_event(events, :thermal, :heat_action_requested, details)
 
-    case Notifier.choose_thermal_action(process.name, suspect_summary(suspects)) do
+    summary = "#{System.temperature_summary(sys)}\n#{suspect_summary(suspects)}"
+
+    case Notifier.choose_thermal_action(process.name, summary) do
       {:ok, :restart} -> restart_hot_app(events, process)
       {:ok, :close} -> close_hot_app(events, process)
       {:ok, :ignore} -> ignore_hot_app(events, process)
@@ -118,6 +135,15 @@ defmodule Canaryd.Checker do
   end
 
   defp suspect_details(suspects), do: Enum.map(suspects, &process_details/1)
+
+  defp temperature_details(sys) do
+    Map.take(sys, [
+      :cpu_temperature_c,
+      :gpu_temperature_c,
+      :battery_temperature_c,
+      :temperature_source
+    ])
+  end
 
   defp suspect_summary(suspects) do
     Enum.map_join(suspects, ", ", fn process ->

@@ -121,19 +121,22 @@ defmodule Canaryd.CLI do
     Enum.map_join(apps, ", ", fn app -> "#{app.name} (PID #{app.pid})" end)
   end
 
-  defp thermal_summary(%{thermal_pressure: false}), do: "thermal pressure: normal"
-
-  defp thermal_summary(%{hot_processes: []}) do
-    "thermal pressure: high; no process uses at least 20% CPU"
+  defp thermal_summary(%{thermal_pressure: false} = system) do
+    "thermal pressure: normal; #{System.temperature_summary(system)}"
   end
 
-  defp thermal_summary(%{hot_processes: processes}) do
+  defp thermal_summary(%{hot_processes: []} = system) do
+    "thermal pressure: high; #{System.temperature_summary(system)}; " <>
+      "no process uses at least 20% CPU"
+  end
+
+  defp thermal_summary(%{hot_processes: processes} = system) do
     suspects =
       Enum.map_join(processes, ", ", fn process ->
         "#{process.name} (PID #{process.pid}, CPU #{process.cpu_percent}%)"
       end)
 
-    "thermal pressure: high; suspects: #{suspects}"
+    "thermal pressure: high; #{System.temperature_summary(system)}; suspects: #{suspects}"
   end
 
   defp history_target("cleanclip"), do: :cleanclip

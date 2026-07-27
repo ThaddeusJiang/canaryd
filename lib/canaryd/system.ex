@@ -5,7 +5,7 @@ defmodule Canaryd.System do
   """
 
   @load_factor_warn 0.8
-  @battery_temperature_warn_c 40.0
+  @chip_temperature_warn_c 70.0
   @hot_process_cpu_min 20.0
 
   @doc "Seconds since last keyboard/mouse input."
@@ -30,18 +30,20 @@ defmodule Canaryd.System do
     throttled = thermal_throttled?()
     mem_free = memory_free_pct()
     battery_temperature = battery_temperature()
+    temperature_sample = Canaryd.Temperature.sample()
     load_pressure = load1 / cores > @load_factor_warn
 
-    temperature_pressure =
-      is_number(battery_temperature) and battery_temperature >= @battery_temperature_warn_c
+    {chip_temperatures, temperature_error} =
+      case temperature_sample do
+        {:ok, temperatures} -> {temperatures, nil}
+        {:error, reason} -> {%{cpu_temperature_c: nil, gpu_temperature_c: nil}, reason}
+      end
 
+    chip_temperature_pressure = chip_temperature_pressure?(chip_temperatures)
     warnings = []
     warnings = if throttled, do: ["CPU thermal throttling active" | warnings], else: warnings
 
-    warnings =
-      if temperature_pressure,
-        do: ["battery temperature #{battery_temperature} C" | warnings],
-        else: warnings
+    warnings = chip_temperature_warnings(warnings, chip_temperatures)
 
     warnings =
       if load_pressure,
@@ -62,12 +64,32 @@ defmodule Canaryd.System do
       load_per_core: Float.round(load1 / cores, 3),
       throttled: throttled,
       battery_temperature_c: battery_temperature,
-      thermal_pressure: throttled or temperature_pressure or load_pressure,
+      cpu_temperature_c: chip_temperatures.cpu_temperature_c,
+      gpu_temperature_c: chip_temperatures.gpu_temperature_c,
+      temperature_source: if(is_nil(temperature_error), do: :macmon, else: :unavailable),
+      temperature_error: temperature_error,
+      thermal_pressure: throttled or chip_temperature_pressure or load_pressure,
       mem_free_pct: mem_free,
       warnings: warnings,
       hot_processes:
-        if(throttled or temperature_pressure or load_pressure, do: hot_processes(), else: [])
+        if(throttled or chip_temperature_pressure or load_pressure, do: hot_processes(), else: [])
     }
+  end
+
+  @doc false
+  def chip_temperature_pressure?(temperatures) do
+    above_threshold?(temperatures.cpu_temperature_c) or
+      above_threshold?(temperatures.gpu_temperature_c)
+  end
+
+  @doc "Formats chip sensor and battery temperatures without mixing their meaning."
+  def temperature_summary(%{temperature_source: :macmon} = system) do
+    "CPU #{system.cpu_temperature_c} C; GPU #{system.gpu_temperature_c} C; " <>
+      "battery #{format_temperature(system.battery_temperature_c)} C"
+  end
+
+  def temperature_summary(system) do
+    "CPU/GPU temperature unavailable; battery #{format_temperature(system.battery_temperature_c)} C"
   end
 
   @doc false
@@ -94,6 +116,24 @@ defmodule Canaryd.System do
     |> Enum.sort_by(& &1.cpu_percent, :desc)
     |> Enum.take(5)
   end
+
+  defp chip_temperature_warnings(warnings, temperatures) do
+    warnings =
+      if above_threshold?(temperatures.cpu_temperature_c),
+        do: ["CPU temperature #{temperatures.cpu_temperature_c} C" | warnings],
+        else: warnings
+
+    if above_threshold?(temperatures.gpu_temperature_c),
+      do: ["GPU temperature #{temperatures.gpu_temperature_c} C" | warnings],
+      else: warnings
+  end
+
+  defp above_threshold?(value) do
+    is_number(value) and value >= @chip_temperature_warn_c
+  end
+
+  defp format_temperature(value) when is_number(value), do: value
+  defp format_temperature(_value), do: "unavailable"
 
   defp load do
     cores =
