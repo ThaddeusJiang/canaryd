@@ -48,9 +48,11 @@ Health model:
 | L1 system | thermal throttling, load, memory pressure | `pmset -g therm`, `sysctl vm.loadavg`, `memory_pressure`; warns after 3 consecutive rounds |
 | GUI response | supported process marked Not Responding | reads the WindowServer state used by Force Quit |
 | Process | CleanClip process alive | `pgrep`; relaunches silently if dead |
-| Function | CleanClip actually recording | synthetic probe: writes clipboard → verifies a new history file appears |
+| Function | CleanClip actually recording | reversible clipboard probe → verifies a new history file appears |
 
 **Idle skip:** when keyboard/mouse has been idle > 30 min (`ioreg HIDIdleTime`), the CleanClip functional probe is skipped. The system check and GUI response scan still run.
+
+**Clipboard safety:** the CleanClip probe saves every current pasteboard item and data type. It restores that snapshot after the probe only when no newer pasteboard write occurred. A user copy during the probe always wins.
 
 **GUI app restart discipline:** a third-party, user-visible app must be marked Not Responding in two consecutive rounds. Canaryd then stops and opens the app in the background. Each app has a 1 h restart cooldown. Apple system apps, daemons, and helper processes are excluded unless listed below. Automatic termination can discard unsaved data.
 
