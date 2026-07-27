@@ -108,8 +108,7 @@ defmodule Canaryd.Store do
 
   @doc "All events, newest first, optionally filtered by target."
   def list_events(events_table, target \\ nil, limit \\ 100) do
-    events_table
-    |> :dets.traverse(fn {_key, event} -> [event] end)
+    :dets.foldl(fn {_key, event}, events -> [event | events] end, [], events_table)
     |> Enum.filter(fn e -> is_nil(target) or e.target == target end)
     |> Enum.sort_by(& &1.at, {:desc, DateTime})
     |> Enum.take(limit)

@@ -2,6 +2,7 @@ defmodule Canaryd.Notifier do
   @moduledoc "macOS notifications and action dialogs. Used only when user attention is required."
 
   @action_timeout_sec 120
+  @warning_timeout_sec 30
 
   @action_script """
   on run argv
@@ -56,12 +57,44 @@ defmodule Canaryd.Notifier do
   end run
   """
 
+  @temperature_warning_script """
+  use framework "AppKit"
+  use scripting additions
+
+  on run argv
+    set warningMessage to item 1 of argv
+    current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
+
+    try
+      display alert "Mac temperature warning" message warningMessage as warning buttons {"Ignore"} default button "Ignore" giving up after #{@warning_timeout_sec}
+      return "shown"
+    on error number -128
+      return "dismissed"
+    end try
+  end run
+  """
+
   def notify(title, message) do
     script =
       ~s(display notification "#{escape(message)}" with title "#{escape(title)}" sound name "Glass")
 
     System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
     :ok
+  end
+
+  @doc "Shows a visible, time-limited warning that does not depend on notification banners."
+  def warn_temperature(message) do
+    warn_temperature(message, &run_osascript/2)
+  end
+
+  @doc false
+  def warn_temperature(message, runner) do
+    case runner.("osascript", ["-e", @temperature_warning_script, message]) do
+      {_output, 0} -> :ok
+      {output, _status} -> {:error, {:dialog_failed, String.trim(output)}}
+    end
+  rescue
+    _ -> {:error, :dialog_failed}
   end
 
   @doc "Shows a time-limited Close, Restart, or Ignore action dialog."
@@ -97,4 +130,8 @@ defmodule Canaryd.Notifier do
   end
 
   defp escape(s), do: String.replace(s, "\"", "\\\"")
+
+  defp run_osascript(bin, args) do
+    System.cmd(bin, args, stderr_to_stdout: true)
+  end
 end

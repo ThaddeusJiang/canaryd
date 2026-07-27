@@ -1,5 +1,5 @@
 defmodule Canaryd.CLI do
-  @moduledoc "escript entry: check | status | history [target] | install | uninstall"
+  @moduledoc "escript entry: check | thermal-check | status | history [target] | install | uninstall"
 
   alias Canaryd.{Checker, Setup, Store, System, ThermalMonitor, UnresponsiveMonitor}
   alias Canaryd.Apps.CleanClip
@@ -28,6 +28,16 @@ defmodule Canaryd.CLI do
         )
 
         IO.puts(app_check_summary(apps))
+    end
+  end
+
+  defp dispatch(["thermal-check"]) do
+    case Checker.run_thermal() do
+      {:error, :locked} ->
+        IO.puts("another check is running, skipping")
+
+      {:thermal_checked, system} ->
+        IO.puts(thermal_summary(system))
     end
   end
 
@@ -84,14 +94,17 @@ defmodule Canaryd.CLI do
 
   defp dispatch(["install"]) do
     case Setup.install() do
-      :ok -> IO.puts("launchd agent installed (#{Setup.label()})")
-      {:error, err} -> IO.puts("install failed: #{err}")
+      :ok ->
+        IO.puts("launchd agents installed (#{Setup.label()}, #{Setup.thermal_label()})")
+
+      {:error, err} ->
+        IO.puts("install failed: #{err}")
     end
   end
 
   defp dispatch(["uninstall"]) do
     Setup.uninstall()
-    IO.puts("launchd agent removed")
+    IO.puts("launchd agents removed")
   end
 
   defp dispatch(_argv) do
@@ -100,10 +113,11 @@ defmodule Canaryd.CLI do
 
     usage:
       canaryd check              run one check round (launchd does this every 5 min)
+      canaryd thermal-check      run one thermal check (launchd does this every 1 min)
       canaryd status             current health snapshot
       canaryd history [target]   event timeline (cleanclip, system, thermal, apps)
-      canaryd install            (re)install the launchd agent (usually automatic)
-      canaryd uninstall          remove the launchd agent
+      canaryd install            (re)install the launchd agents (usually automatic)
+      canaryd uninstall          remove the launchd agents
     """)
   end
 

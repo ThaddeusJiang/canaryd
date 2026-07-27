@@ -24,6 +24,13 @@ sensor data.
 - Kept battery temperature as a separate metric.
 - Removed battery temperature from chip thermal pressure decisions.
 - Added explicit fallback output when chip temperature is unavailable.
+- Sent the warning on the first hot observation while keeping actions confirmed.
+- Added a 15-minute warning cooldown per leading process.
+- Replaced the suppressible banner with a 30-second foreground warning alert.
+- Added banner fallback and warning delivery history.
+- Fixed DETS event traversal so thermal history shows every event.
+- Added a dedicated one-minute thermal agent.
+- Kept the full health check at five minutes to limit clipboard probes.
 - Added focused tests for parsing, version checks, thresholds, and labels.
 
 ## What we learned
@@ -32,3 +39,4 @@ sensor data.
 - Battery temperature must not stand in for CPU or GPU temperature.
 - A dependency version and its output schema must be verified together.
 - A short sample window is more reliable than one instantaneous value.
+- A five-minute interval can miss a short temperature spike.

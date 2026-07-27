@@ -6,17 +6,18 @@ defmodule Canaryd.ThermalMonitor do
   """
 
   @confirmation_count 2
+  @alert_cooldown_sec 900
   @prompt_cooldown_sec 3_600
   @retention_sec 86_400
 
   def default_state do
-    %{observations: %{}, prompts: %{}}
+    %{observations: %{}, alerts: %{}, prompts: %{}}
   end
 
   @doc """
   Evaluates one thermal sample and returns `{new_state, actions}`.
 
-  Actions are `{:detected, process, suspects}`, `{:choose, process, suspects}`,
+  Actions are `{:alert, process, suspects}`, `{:choose, process, suspects}`,
   or `{:report, suspects}`.
   """
   def evaluate(state, thermal_pressure, suspects, now) do
@@ -30,12 +31,8 @@ defmodule Canaryd.ThermalMonitor do
       actionable = Enum.find(suspects, & &1.actionable) ->
         observe_actionable(state, actionable, suspects, now)
 
-      state.observations == %{} ->
-        observation = %{reported: %{at: now}}
-        {%{state | observations: observation}, [{:report, suspects}]}
-
       true ->
-        {state, []}
+        report_protected(state, suspects, now)
     end
   end
 
@@ -46,8 +43,14 @@ defmodule Canaryd.ThermalMonitor do
 
       if count < @confirmation_count do
         observation = %{process: process, count: count}
+        next_state = %{state | observations: %{process.id => observation}}
 
-        {%{state | observations: %{process.id => observation}}, [{:detected, process, suspects}]}
+        if alert_allowed?(state, process.id, now) do
+          next_state = %{next_state | alerts: Map.put(state.alerts, process.id, now)}
+          {next_state, [{:alert, process, suspects}]}
+        else
+          {next_state, []}
+        end
       else
         next_state = %{
           state
@@ -62,6 +65,25 @@ defmodule Canaryd.ThermalMonitor do
     end
   end
 
+  defp report_protected(state, suspects, now) do
+    process = hd(suspects)
+    next_state = %{state | observations: %{reported: %{at: now}}}
+
+    if alert_allowed?(state, process.id, now) do
+      next_state = %{next_state | alerts: Map.put(state.alerts, process.id, now)}
+      {next_state, [{:report, suspects}]}
+    else
+      {next_state, []}
+    end
+  end
+
+  defp alert_allowed?(state, id, now) do
+    case Map.get(state.alerts, id) do
+      nil -> true
+      alerted_at -> DateTime.diff(now, alerted_at, :second) >= @alert_cooldown_sec
+    end
+  end
+
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
@@ -70,16 +92,19 @@ defmodule Canaryd.ThermalMonitor do
   end
 
   defp normalize_state(state, now) do
-    prompts =
-      state
-      |> Map.get(:prompts, %{})
-      |> Map.filter(fn {_id, prompted_at} ->
-        DateTime.diff(now, prompted_at, :second) < @retention_sec
-      end)
+    alerts = recent_entries(Map.get(state, :alerts, %{}), now)
+    prompts = recent_entries(Map.get(state, :prompts, %{}), now)
 
     %{
       observations: Map.get(state, :observations, %{}),
+      alerts: alerts,
       prompts: prompts
     }
+  end
+
+  defp recent_entries(entries, now) do
+    Map.filter(entries, fn {_id, recorded_at} ->
+      DateTime.diff(now, recorded_at, :second) < @retention_sec
+    end)
   end
 end

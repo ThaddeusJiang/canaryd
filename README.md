@@ -24,18 +24,21 @@ mix escript.install hex canaryd
 Verify that `macmon --version` prints `macmon 0.8.0`. Canaryd rejects other
 versions until their JSON schema is verified.
 
-The first time any `canaryd` command runs, it automatically registers a launchd
-agent that runs `canaryd check` every 5 minutes. If the agent is ever deleted,
-the next `canaryd` invocation re-creates it. No manual plist setup is needed.
+The first time any `canaryd` command runs, it automatically registers two
+launchd agents. One agent runs an exact temperature and thermal-process check
+every minute. The other agent runs the full health check every 5 minutes. If an
+agent is ever deleted, the next `canaryd` invocation re-creates it. No manual
+plist setup is needed.
 
 ## Usage
 
 ```sh
 canaryd check              # run one check round (launchd does this automatically)
+canaryd thermal-check      # run one temperature and thermal-process check
 canaryd status             # current health snapshot + recent events
-canaryd history [target]   # event timeline (cleanclip, system, or apps)
-canaryd install            # force (re)install of the launchd agent (normally automatic)
-canaryd uninstall          # remove the launchd agent
+canaryd history [target]   # event timeline (cleanclip, system, thermal, or apps)
+canaryd install            # force (re)install of the launchd agents (normally automatic)
+canaryd uninstall          # remove the launchd agents
 ```
 
 ### Example: `canaryd status`
@@ -66,7 +69,7 @@ Health model:
 
 **GUI app restart discipline:** a third-party, user-visible app must be marked Not Responding in two consecutive rounds. Canaryd then stops and opens the app in the background. Each app has a 1 h restart cooldown. Apple system apps, daemons, and helper processes are excluded unless listed below. Automatic termination can discard unsaved data.
 
-**Thermal process actions:** Canaryd uses `macmon 0.8.0` to read average CPU and GPU sensor temperature. Each check keeps the highest value from a three-sample window. A CPU or GPU temperature of at least 70°C causes thermal pressure. Battery temperature stays a separate metric and never represents chip temperature. During sustained thermal pressure, Canaryd lists up to five processes that use at least 20% CPU. CPU use is correlation evidence, not exact heat attribution. After the same third-party app leads two rounds, Canaryd asks you to close, restart, or ignore it. It never offers these actions for Apple apps, system services, nested helper apps, or processes without a safe app bundle. Each app has a 1 h prompt cooldown.
+**Thermal process actions:** Canaryd uses `macmon 0.8.0` to read average CPU and GPU sensor temperature every minute. Each check keeps the highest value from a three-sample window. A CPU or GPU temperature of at least 70°C causes thermal pressure. Battery temperature stays a separate metric and never represents chip temperature. Canaryd brings a 30 s warning alert to the foreground on the first thermal-pressure round and applies a 15 min alert cooldown per leading process. It falls back to a notification banner when the alert fails. During sustained thermal pressure, Canaryd lists up to five processes that use at least 20% CPU. CPU use is correlation evidence, not exact heat attribution. After the same third-party app leads two rounds, Canaryd asks you to close, restart, or ignore it. It never offers these actions for Apple apps, system services, nested helper apps, or processes without a safe app bundle. Each app has a 1 h prompt cooldown.
 
 **Cursor UI service:** `CursorUIViewService` is an explicitly supported Apple text-input service. After two consecutive Not Responding rounds, Canaryd sends a notification and shows a 120 s action dialog. The user can ignore, close, or restart the service. Close or Restart can force-stop the current instance. Restart waits for launchd or an XPC client to start a new PID. macOS can open the service again when needed. The prompt has a 1 h cooldown.
 

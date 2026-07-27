@@ -23,7 +23,7 @@ defmodule Canaryd.ThermalMonitorTest do
     {state, first_actions} =
       ThermalMonitor.evaluate(ThermalMonitor.default_state(), true, [app()], @t0)
 
-    assert first_actions == [{:detected, app(), [app()]}]
+    assert first_actions == [{:alert, app(), [app()]}]
 
     {_state, second_actions} =
       ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 300, :second))
@@ -62,5 +62,26 @@ defmodule Canaryd.ThermalMonitorTest do
       ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 600, :second))
 
     assert actions == []
+  end
+
+  test "does not repeat an alert during the alert cooldown" do
+    {state, [{:alert, _app, _suspects}]} =
+      ThermalMonitor.evaluate(ThermalMonitor.default_state(), true, [app()], @t0)
+
+    {state, []} =
+      ThermalMonitor.evaluate(state, false, [], DateTime.add(@t0, 300, :second))
+
+    {state, actions} =
+      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 600, :second))
+
+    assert actions == []
+
+    {state, []} =
+      ThermalMonitor.evaluate(state, false, [], DateTime.add(@t0, 900, :second))
+
+    {_state, actions} =
+      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 901, :second))
+
+    assert actions == [{:alert, app(), [app()]}]
   end
 end

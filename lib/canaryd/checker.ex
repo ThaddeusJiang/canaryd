@@ -34,6 +34,16 @@ defmodule Canaryd.Checker do
     end)
   end
 
+  @doc "Runs only the temperature and thermal process checks."
+  def run_thermal do
+    Store.with_tables(fn state, events ->
+      sys = System.check()
+      thermal_monitor = check_thermal_processes(state, events, sys)
+
+      {:thermal_checked, Map.put(sys, :thermal_monitor, thermal_monitor)}
+    end)
+  end
+
   defp check_thermal_processes(state, events, sys) do
     monitor_state =
       Store.get_value(state, :thermal_processes, ThermalMonitor.default_state())
@@ -52,27 +62,27 @@ defmodule Canaryd.Checker do
     %{pressure: sys.thermal_pressure, suspects: sys.hot_processes, actions: results}
   end
 
-  defp run_thermal_action(events, {:detected, process, suspects}, sys) do
+  defp run_thermal_action(events, {:alert, process, suspects}, sys) do
     details =
       process
       |> process_details()
       |> Map.put(:suspects, suspect_details(suspects))
       |> Map.put(:temperatures, temperature_details(sys))
 
-    Store.log_event(events, :thermal, :heat_suspect_detected, details)
-    :detected
+    delivery = deliver_temperature_warning(sys, suspects)
+    Store.log_event(events, :thermal, :heat_alerted, Map.put(details, :delivery, delivery))
+
+    :alerted
   end
 
   defp run_thermal_action(events, {:report, suspects}, sys) do
+    delivery = deliver_temperature_warning(sys, suspects)
+
     Store.log_event(events, :thermal, :heat_suspects_reported, %{
       suspects: suspect_details(suspects),
-      temperatures: temperature_details(sys)
+      temperatures: temperature_details(sys),
+      delivery: delivery
     })
-
-    Notifier.notify(
-      "Mac Health",
-      "#{System.temperature_summary(sys)}; suspects: #{suspect_summary(suspects)}"
-    )
 
     :reported
   end
@@ -143,6 +153,19 @@ defmodule Canaryd.Checker do
       :battery_temperature_c,
       :temperature_source
     ])
+  end
+
+  defp deliver_temperature_warning(sys, suspects) do
+    message = "#{System.temperature_summary(sys)}\n\nSuspects: #{suspect_summary(suspects)}"
+
+    case Notifier.warn_temperature(message) do
+      :ok ->
+        :alert_shown
+
+      {:error, reason} ->
+        Notifier.notify("Mac temperature warning", String.replace(message, "\n\n", "; "))
+        {:banner_fallback, inspect(reason)}
+    end
   end
 
   defp suspect_summary(suspects) do
