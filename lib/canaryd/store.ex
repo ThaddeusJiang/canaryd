@@ -4,8 +4,8 @@ defmodule Canaryd.Store do
 
   Two tables live under `~/Library/Application Support/canaryd/`:
 
-    * `state.dets`  - latest state machine snapshot per target
-      key: target name (atom), value: map
+    * `state.dets`  - latest state machine or monitor snapshot per target
+      key: target name, value: map
     * `events.dets` - append-only event log
       key: {unix_usec, unique_integer}, value: event map
 
@@ -68,6 +68,14 @@ defmodule Canaryd.Store do
     end
   end
 
+  @doc "Get a stored value, or return the given default."
+  def get_value(table, key, default) do
+    case :dets.lookup(table, key) do
+      [{^key, value}] -> value
+      [] -> default
+    end
+  end
+
   def put_state(state_table, target, value) do
     :dets.insert(state_table, {target, value})
   end
@@ -82,7 +90,7 @@ defmodule Canaryd.Store do
     }
   end
 
-  @doc "Append an event. `type` e.g. :probe_fail, :restarted, :blocked, :recovered, :system_warn."
+  @doc "Append an event such as :hang_detected, :probe_fail, :restarted, or :blocked."
   def log_event(events_table, target, type, details \\ %{}) do
     now = DateTime.utc_now()
     key = {DateTime.to_unix(now, :microsecond), :erlang.unique_integer([:positive])}

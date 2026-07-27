@@ -2,15 +2,16 @@ defmodule Canaryd.Checker do
   @moduledoc """
   One full health-check round:
 
-    1. User idle > 30min? -> record L1 only, skip probes (user away, silence is normal)
-    2. L1 system: thermal / load / memory
-    3. L2 CleanClip process liveness (relaunch silently if dead)
-    4. L3 CleanClip functional probe, state machine, silent auto-restart,
+    1. L1 system: thermal / load / memory
+    2. Scan the macOS unresponsive state for third-party GUI apps
+    3. User idle > 30min? -> skip the CleanClip probe
+    4. L2 CleanClip process liveness (relaunch silently if dead)
+    5. L3 CleanClip functional probe, state machine, silent auto-restart,
        notify only when blocked.
   """
 
-  alias Canaryd.{Notifier, StateMachine, Store, System}
-  alias Canaryd.Apps.CleanClip
+  alias Canaryd.{Notifier, StateMachine, Store, System, UnresponsiveMonitor}
+  alias Canaryd.Apps.{CleanClip, Unresponsive}
 
   @idle_skip_sec 1_800
 
@@ -19,15 +20,126 @@ defmodule Canaryd.Checker do
       idle = System.idle_seconds()
       sys = System.check()
       record_system(state, events, sys)
+      app_monitor = check_unresponsive_apps(state, events)
 
       if idle > @idle_skip_sec do
         Store.log_event(events, :self, :skipped_idle, %{idle_seconds: idle})
-        {:skipped_idle, idle, sys}
+        {:skipped_idle, idle, sys, app_monitor}
       else
         cleanclip = check_cleanclip(state, events)
-        {:checked, idle, sys, cleanclip}
+        {:checked, idle, sys, cleanclip, app_monitor}
       end
     end)
+  end
+
+  defp check_unresponsive_apps(state, events) do
+    monitor_state =
+      Store.get_value(state, :unresponsive_apps, UnresponsiveMonitor.default_state())
+
+    case Unresponsive.scan() do
+      {:ok, apps} ->
+        {new_monitor_state, actions} =
+          UnresponsiveMonitor.evaluate(monitor_state, apps, DateTime.utc_now())
+
+        Store.put_state(state, :unresponsive_apps, new_monitor_state)
+        results = Enum.map(actions, &run_app_action(events, &1))
+
+        %{status: :available, detected: length(apps), actions: results}
+
+      {:error, reason} ->
+        Store.put_state(
+          state,
+          :unresponsive_apps,
+          UnresponsiveMonitor.reset_observations(monitor_state)
+        )
+
+        %{status: :unavailable, detected: 0, actions: [], reason: reason}
+    end
+  end
+
+  defp run_app_action(events, {:detected, app, count}) do
+    Store.log_event(events, :apps, :hang_detected, Map.put(app_details(app), :count, count))
+    :detected
+  end
+
+  defp run_app_action(events, {:restart, app}) do
+    case Unresponsive.restart(app) do
+      :ok ->
+        Store.log_event(events, :apps, :restarted, app_details(app))
+        :restarted
+
+      {:error, reason} ->
+        details = Map.put(app_details(app), :reason, inspect(reason))
+        Store.log_event(events, :apps, :restart_failed, details)
+        Notifier.notify("Mac Health", "#{app.name} was unresponsive and could not restart.")
+        :restart_failed
+    end
+  end
+
+  defp run_app_action(events, {:choose, app}) do
+    Notifier.notify(
+      "Mac Health",
+      "#{app.name} is not responding. Choose Close or Restart in the action dialog."
+    )
+
+    case Notifier.choose_app_action(app.name) do
+      {:ok, :restart} -> restart_selected_app(events, app)
+      {:ok, :close} -> close_selected_app(events, app)
+      {:ok, :ignore} -> ignore_selected_app(events, app)
+      {:error, reason} -> app_action_failed(events, app, reason)
+    end
+  end
+
+  defp run_app_action(events, {:blocked, app}) do
+    Store.log_event(events, :apps, :blocked, app_details(app))
+    Notifier.notify("Mac Health", "#{app.name} is still unresponsive after an automatic restart.")
+    :blocked
+  end
+
+  defp app_details(app) do
+    Map.take(app, [
+      :id,
+      :name,
+      :pid,
+      :activation_policy,
+      :bundle_id,
+      :bundle_path,
+      :recovery
+    ])
+  end
+
+  defp restart_selected_app(events, app) do
+    case Unresponsive.restart(app) do
+      :ok ->
+        Store.log_event(events, :apps, :restarted, app_details(app))
+        :restarted
+
+      {:error, reason} ->
+        app_action_failed(events, app, reason)
+    end
+  end
+
+  defp close_selected_app(events, app) do
+    case Unresponsive.close(app) do
+      :ok ->
+        Store.log_event(events, :apps, :closed, app_details(app))
+        :closed
+
+      {:error, reason} ->
+        app_action_failed(events, app, reason)
+    end
+  end
+
+  defp ignore_selected_app(events, app) do
+    Store.log_event(events, :apps, :ignored, app_details(app))
+    :ignored
+  end
+
+  defp app_action_failed(events, app, reason) do
+    details = Map.put(app_details(app), :reason, inspect(reason))
+    Store.log_event(events, :apps, :action_failed, details)
+    Notifier.notify("Mac Health", "The selected action for #{app.name} failed.")
+    :action_failed
   end
 
   defp record_system(state, events, sys) do
@@ -85,7 +197,11 @@ defmodule Canaryd.Checker do
 
       {:fail, :blocked} ->
         Store.log_event(events, :cleanclip, :blocked, %{reason: inspect(probe_result)})
-        Notifier.notify("Mac Health", "CleanClip unresponsive; auto-restart failed. Please check manually.")
+
+        Notifier.notify(
+          "Mac Health",
+          "CleanClip unresponsive; auto-restart failed. Please check manually."
+        )
 
       {:fail, :wait} ->
         Store.log_event(events, :cleanclip, :probe_fail, %{reason: inspect(probe_result)})
