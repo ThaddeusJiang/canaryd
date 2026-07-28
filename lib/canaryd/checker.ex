@@ -2,7 +2,7 @@ defmodule Canaryd.Checker do
   @moduledoc """
   One full health-check round:
 
-    1. L1 system: thermal / load / memory
+    1. L1 system: CPU/GPU temperature / thermal / load / memory
     2. Scan the macOS unresponsive state for third-party GUI apps
     3. User idle > 30min? -> skip the CleanClip probe
     4. L2 CleanClip process liveness (relaunch silently if dead)
@@ -10,7 +10,7 @@ defmodule Canaryd.Checker do
        notify only when blocked.
   """
 
-  alias Canaryd.{Notifier, StateMachine, Store, System, UnresponsiveMonitor}
+  alias Canaryd.{Notifier, StateMachine, Store, System, ThermalMonitor, UnresponsiveMonitor}
   alias Canaryd.Apps.{CleanClip, Unresponsive}
 
   @idle_skip_sec 1_800
@@ -20,6 +20,8 @@ defmodule Canaryd.Checker do
       idle = System.idle_seconds()
       sys = System.check()
       record_system(state, events, sys)
+      thermal_monitor = check_thermal_processes(state, events, sys)
+      sys = Map.put(sys, :thermal_monitor, thermal_monitor)
       app_monitor = check_unresponsive_apps(state, events)
 
       if idle > @idle_skip_sec do
@@ -29,6 +31,146 @@ defmodule Canaryd.Checker do
         cleanclip = check_cleanclip(state, events)
         {:checked, idle, sys, cleanclip, app_monitor}
       end
+    end)
+  end
+
+  @doc "Runs only the temperature and thermal process checks."
+  def run_thermal do
+    Store.with_tables(fn state, events ->
+      sys = System.check()
+      thermal_monitor = check_thermal_processes(state, events, sys)
+
+      {:thermal_checked, Map.put(sys, :thermal_monitor, thermal_monitor)}
+    end)
+  end
+
+  defp check_thermal_processes(state, events, sys) do
+    monitor_state =
+      Store.get_value(state, :thermal_processes, ThermalMonitor.default_state())
+
+    {new_monitor_state, actions} =
+      ThermalMonitor.evaluate(
+        monitor_state,
+        sys.thermal_pressure,
+        sys.hot_processes,
+        DateTime.utc_now()
+      )
+
+    Store.put_state(state, :thermal_processes, new_monitor_state)
+    results = Enum.map(actions, &run_thermal_action(events, &1, sys))
+
+    %{pressure: sys.thermal_pressure, suspects: sys.hot_processes, actions: results}
+  end
+
+  defp run_thermal_action(events, {:alert, process, suspects}, sys) do
+    details =
+      process
+      |> process_details()
+      |> Map.put(:suspects, suspect_details(suspects))
+      |> Map.put(:temperatures, temperature_details(sys))
+
+    delivery = deliver_temperature_warning(sys, suspects)
+    Store.log_event(events, :thermal, :heat_alerted, Map.put(details, :delivery, delivery))
+
+    :alerted
+  end
+
+  defp run_thermal_action(events, {:report, suspects}, sys) do
+    delivery = deliver_temperature_warning(sys, suspects)
+
+    Store.log_event(events, :thermal, :heat_suspects_reported, %{
+      suspects: suspect_details(suspects),
+      temperatures: temperature_details(sys),
+      delivery: delivery
+    })
+
+    :reported
+  end
+
+  defp run_thermal_action(events, {:choose, process, suspects}, sys) do
+    details =
+      process
+      |> process_details()
+      |> Map.put(:suspects, suspect_details(suspects))
+      |> Map.put(:temperatures, temperature_details(sys))
+
+    Store.log_event(events, :thermal, :heat_action_requested, details)
+
+    summary = "#{System.temperature_summary(sys)}\n#{suspect_summary(suspects)}"
+
+    case Notifier.choose_thermal_action(process.name, summary) do
+      {:ok, :restart} -> restart_hot_app(events, process)
+      {:ok, :close} -> close_hot_app(events, process)
+      {:ok, :ignore} -> ignore_hot_app(events, process)
+      {:error, reason} -> thermal_action_failed(events, process, reason)
+    end
+  end
+
+  defp restart_hot_app(events, process) do
+    case Unresponsive.restart(process) do
+      :ok ->
+        Store.log_event(events, :thermal, :restarted, process_details(process))
+        :restarted
+
+      {:error, reason} ->
+        thermal_action_failed(events, process, reason)
+    end
+  end
+
+  defp close_hot_app(events, process) do
+    case Unresponsive.close(process) do
+      :ok ->
+        Store.log_event(events, :thermal, :closed, process_details(process))
+        :closed
+
+      {:error, reason} ->
+        thermal_action_failed(events, process, reason)
+    end
+  end
+
+  defp ignore_hot_app(events, process) do
+    Store.log_event(events, :thermal, :ignored, process_details(process))
+    :ignored
+  end
+
+  defp thermal_action_failed(events, process, reason) do
+    details = Map.put(process_details(process), :reason, inspect(reason))
+    Store.log_event(events, :thermal, :action_failed, details)
+    Notifier.notify("Mac Health", "The selected thermal action for #{process.name} failed.")
+    :action_failed
+  end
+
+  defp process_details(process) do
+    Map.take(process, [:id, :name, :pid, :cpu_percent, :bundle_path])
+  end
+
+  defp suspect_details(suspects), do: Enum.map(suspects, &process_details/1)
+
+  defp temperature_details(sys) do
+    Map.take(sys, [
+      :cpu_temperature_c,
+      :gpu_temperature_c,
+      :battery_temperature_c,
+      :temperature_source
+    ])
+  end
+
+  defp deliver_temperature_warning(sys, suspects) do
+    message = "#{System.temperature_summary(sys)}\n\nSuspects: #{suspect_summary(suspects)}"
+
+    case Notifier.warn_temperature(message) do
+      :ok ->
+        :alert_shown
+
+      {:error, reason} ->
+        Notifier.notify("Mac temperature warning", String.replace(message, "\n\n", "; "))
+        {:banner_fallback, inspect(reason)}
+    end
+  end
+
+  defp suspect_summary(suspects) do
+    Enum.map_join(suspects, ", ", fn process ->
+      "#{process.name} (PID #{process.pid}, CPU #{process.cpu_percent}%)"
     end)
   end
 

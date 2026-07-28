@@ -6,18 +6,34 @@ defmodule Canaryd.Setup do
   """
 
   @label "com.thaddeusjiang.canaryd"
-  @interval_sec 300
+  @thermal_label "com.thaddeusjiang.canaryd.thermal"
 
   def label, do: @label
+  def thermal_label, do: @thermal_label
+
+  @doc false
+  def agent_specs(escript_path) do
+    [
+      %{label: @label, command: "check", interval_sec: 300, escript_path: escript_path},
+      %{
+        label: @thermal_label,
+        command: "thermal-check",
+        interval_sec: 60,
+        escript_path: escript_path
+      }
+    ]
+  end
 
   @doc "Idempotent. Safe to call on every CLI run."
   def ensure_installed do
+    agents = configured_agents()
+
     cond do
-      not File.exists?(plist_path()) ->
+      Enum.any?(agents, &(not File.exists?(plist_path(&1.label)))) ->
         install()
 
-      not loaded?() ->
-        bootstrap()
+      Enum.any?(agents, &(not loaded?(&1.label))) ->
+        bootstrap(agents)
 
       true ->
         :ok
@@ -25,36 +41,46 @@ defmodule Canaryd.Setup do
   end
 
   def install do
-    File.mkdir_p!(Path.dirname(plist_path()))
+    agents = configured_agents()
+    File.mkdir_p!(Path.dirname(plist_path(@label)))
     File.mkdir_p!(log_dir())
-    File.write!(plist_path(), plist())
-    bootstrap()
+
+    Enum.each(agents, fn agent ->
+      File.write!(plist_path(agent.label), plist(agent))
+    end)
+
+    bootstrap(agents)
   end
 
   def uninstall do
-    if loaded?(), do: bootout()
-    File.rm(plist_path())
+    Enum.each(configured_agents(), fn agent ->
+      if loaded?(agent.label), do: bootout(agent.label)
+      File.rm(plist_path(agent.label))
+    end)
+
     :ok
   end
 
-  defp bootstrap do
-    bootout()
+  defp bootstrap(agents) do
+    Enum.each(agents, &bootout(&1.label))
 
-    case System.cmd("launchctl", ["bootstrap", "gui/#{uid()}", plist_path()],
-           stderr_to_stdout: true
-         ) do
-      {_, 0} -> :ok
-      {err, _} -> {:error, err}
-    end
+    Enum.reduce_while(agents, :ok, fn agent, :ok ->
+      args = ["bootstrap", "gui/#{uid()}", plist_path(agent.label)]
+
+      case System.cmd("launchctl", args, stderr_to_stdout: true) do
+        {_, 0} -> {:cont, :ok}
+        {error, _status} -> {:halt, {:error, error}}
+      end
+    end)
   end
 
-  defp bootout do
-    System.cmd("launchctl", ["bootout", "gui/#{uid()}/#{@label}"], stderr_to_stdout: true)
+  defp bootout(label) do
+    System.cmd("launchctl", ["bootout", "gui/#{uid()}/#{label}"], stderr_to_stdout: true)
     :ok
   end
 
-  defp loaded? do
-    case System.cmd("launchctl", ["list", @label], stderr_to_stdout: true) do
+  defp loaded?(label) do
+    case System.cmd("launchctl", ["list", label], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
@@ -65,11 +91,13 @@ defmodule Canaryd.Setup do
     String.trim(out)
   end
 
-  defp plist_path do
-    Path.expand("~/Library/LaunchAgents/#{@label}.plist")
+  defp plist_path(label) do
+    Path.expand("~/Library/LaunchAgents/#{label}.plist")
   end
 
   defp log_dir, do: Canaryd.Store.dir()
+
+  defp configured_agents, do: agent_specs(escript_path())
 
   # Absolute path of the currently running escript, e.g. ~/.mix/escripts/canaryd
   defp escript_path do
@@ -84,21 +112,21 @@ defmodule Canaryd.Setup do
     Path.join([:code.root_dir(), "bin"])
   end
 
-  defp plist do
+  defp plist(agent) do
     """
     <?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
     <plist version="1.0">
     <dict>
       <key>Label</key>
-      <string>#{@label}</string>
+      <string>#{agent.label}</string>
       <key>ProgramArguments</key>
       <array>
-        <string>#{escript_path()}</string>
-        <string>check</string>
+        <string>#{agent.escript_path}</string>
+        <string>#{agent.command}</string>
       </array>
       <key>StartInterval</key>
-      <integer>#{@interval_sec}</integer>
+      <integer>#{agent.interval_sec}</integer>
       <key>RunAtLoad</key>
       <true/>
       <key>StandardOutPath</key>

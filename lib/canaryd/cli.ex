@@ -1,7 +1,7 @@
 defmodule Canaryd.CLI do
-  @moduledoc "escript entry: check | status | history [target] | install | uninstall"
+  @moduledoc "escript entry: check | thermal-check | status | history [target] | install | uninstall"
 
-  alias Canaryd.{Checker, Setup, Store, System, UnresponsiveMonitor}
+  alias Canaryd.{Checker, Setup, Store, System, ThermalMonitor, UnresponsiveMonitor}
   alias Canaryd.Apps.CleanClip
 
   def main(argv) do
@@ -18,20 +18,32 @@ defmodule Canaryd.CLI do
       {:skipped_idle, idle, sys, apps} ->
         IO.puts(
           "idle #{idle}s, CleanClip probe skipped; system warnings: #{length(sys.warnings)}; " <>
-            app_check_summary(apps)
+            "#{thermal_summary(sys)}; #{app_check_summary(apps)}"
         )
 
       {:checked, _idle, sys, cc, apps} ->
         IO.puts(
-          "cleanclip: #{cc.probe} (#{cc.action}), failures=#{cc.failures}; system warnings: #{inspect(sys.warnings)}"
+          "cleanclip: #{cc.probe} (#{cc.action}), failures=#{cc.failures}; " <>
+            "system warnings: #{inspect(sys.warnings)}; #{thermal_summary(sys)}"
         )
 
         IO.puts(app_check_summary(apps))
     end
   end
 
+  defp dispatch(["thermal-check"]) do
+    case Checker.run_thermal() do
+      {:error, :locked} ->
+        IO.puts("another check is running, skipping")
+
+      {:thermal_checked, system} ->
+        IO.puts(thermal_summary(system))
+    end
+  end
+
   defp dispatch(["status"]) do
     idle = System.idle_seconds()
+    current_system = System.check()
 
     Store.with_tables(fn state, events ->
       for target <- [:cleanclip, :system] do
@@ -52,10 +64,16 @@ defmodule Canaryd.CLI do
 
       pending_apps = UnresponsiveMonitor.pending_apps(monitor_state)
       IO.puts("\nunresponsive apps: #{format_pending_apps(pending_apps)}")
+
+      thermal_state =
+        Store.get_value(state, :thermal_processes, ThermalMonitor.default_state())
+
+      IO.puts("thermal suspects pending: #{map_size(thermal_state.observations)}")
     end)
 
     IO.puts("\ncleanclip process alive: #{CleanClip.process_alive?()}")
     IO.puts("user idle: #{idle}s")
+    IO.puts(thermal_summary(current_system))
   end
 
   defp dispatch(["history"]), do: dispatch(["history", "cleanclip"])
@@ -76,14 +94,17 @@ defmodule Canaryd.CLI do
 
   defp dispatch(["install"]) do
     case Setup.install() do
-      :ok -> IO.puts("launchd agent installed (#{Setup.label()})")
-      {:error, err} -> IO.puts("install failed: #{err}")
+      :ok ->
+        IO.puts("launchd agents installed (#{Setup.label()}, #{Setup.thermal_label()})")
+
+      {:error, err} ->
+        IO.puts("install failed: #{err}")
     end
   end
 
   defp dispatch(["uninstall"]) do
     Setup.uninstall()
-    IO.puts("launchd agent removed")
+    IO.puts("launchd agents removed")
   end
 
   defp dispatch(_argv) do
@@ -92,10 +113,11 @@ defmodule Canaryd.CLI do
 
     usage:
       canaryd check              run one check round (launchd does this every 5 min)
+      canaryd thermal-check      run one thermal check (launchd does this every 1 min)
       canaryd status             current health snapshot
-      canaryd history [target]   event timeline (cleanclip, system, apps)
-      canaryd install            (re)install the launchd agent (usually automatic)
-      canaryd uninstall          remove the launchd agent
+      canaryd history [target]   event timeline (cleanclip, system, thermal, apps)
+      canaryd install            (re)install the launchd agents (usually automatic)
+      canaryd uninstall          remove the launchd agents
     """)
   end
 
@@ -113,8 +135,27 @@ defmodule Canaryd.CLI do
     Enum.map_join(apps, ", ", fn app -> "#{app.name} (PID #{app.pid})" end)
   end
 
+  defp thermal_summary(%{thermal_pressure: false} = system) do
+    "thermal pressure: normal; #{System.temperature_summary(system)}"
+  end
+
+  defp thermal_summary(%{hot_processes: []} = system) do
+    "thermal pressure: high; #{System.temperature_summary(system)}; " <>
+      "no process uses at least 20% CPU"
+  end
+
+  defp thermal_summary(%{hot_processes: processes} = system) do
+    suspects =
+      Enum.map_join(processes, ", ", fn process ->
+        "#{process.name} (PID #{process.pid}, CPU #{process.cpu_percent}%)"
+      end)
+
+    "thermal pressure: high; #{System.temperature_summary(system)}; suspects: #{suspects}"
+  end
+
   defp history_target("cleanclip"), do: :cleanclip
   defp history_target("system"), do: :system
+  defp history_target("thermal"), do: :thermal
   defp history_target("apps"), do: :apps
   defp history_target(_target), do: :unknown
 
