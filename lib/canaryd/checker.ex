@@ -160,11 +160,11 @@ defmodule Canaryd.Checker do
 
     case Notifier.warn_temperature(message) do
       :ok ->
-        :alert_shown
+        :notification_scheduled
 
       {:error, reason} ->
         Notifier.notify("Mac temperature warning", String.replace(message, "\n\n", "; "))
-        {:banner_fallback, inspect(reason)}
+        {:notification_fallback, inspect(reason)}
     end
   end
 
@@ -219,11 +219,6 @@ defmodule Canaryd.Checker do
   end
 
   defp run_app_action(events, {:choose, app}) do
-    Notifier.notify(
-      "Mac Health",
-      "#{app.name} is not responding. Choose Close or Restart in the action dialog."
-    )
-
     case Notifier.choose_app_action(app.name) do
       {:ok, :restart} -> restart_selected_app(events, app)
       {:ok, :close} -> close_selected_app(events, app)

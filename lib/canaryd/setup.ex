@@ -8,6 +8,8 @@ defmodule Canaryd.Setup do
   @label "com.thaddeusjiang.canaryd"
   @thermal_label "com.thaddeusjiang.canaryd.thermal"
 
+  alias Canaryd.NotificationHelper
+
   def label, do: @label
   def thermal_label, do: @thermal_label
 
@@ -28,20 +30,29 @@ defmodule Canaryd.Setup do
   def ensure_installed do
     agents = configured_agents()
 
-    cond do
-      Enum.any?(agents, &(not File.exists?(plist_path(&1.label)))) ->
-        install()
+    with :ok <- NotificationHelper.ensure_installed() do
+      cond do
+        Enum.any?(agents, &(not File.exists?(plist_path(&1.label)))) ->
+          install_agents(agents)
 
-      Enum.any?(agents, &(not loaded?(&1.label))) ->
-        bootstrap(agents)
+        Enum.any?(agents, &(not loaded?(&1.label))) ->
+          bootstrap(agents)
 
-      true ->
-        :ok
+        true ->
+          :ok
+      end
     end
   end
 
   def install do
     agents = configured_agents()
+
+    with :ok <- NotificationHelper.ensure_installed() do
+      install_agents(agents)
+    end
+  end
+
+  defp install_agents(agents) do
     File.mkdir_p!(Path.dirname(plist_path(@label)))
     File.mkdir_p!(log_dir())
 
@@ -58,6 +69,7 @@ defmodule Canaryd.Setup do
       File.rm(plist_path(agent.label))
     end)
 
+    NotificationHelper.remove()
     :ok
   end
 

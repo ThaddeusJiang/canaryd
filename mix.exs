@@ -36,7 +36,7 @@ defmodule Canaryd.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/ThaddeusJiang/canaryd"},
-      files: ~w(lib mix.exs README.md LICENSE)
+      files: ~w(lib priv mix.exs README.md LICENSE)
     ]
   end
 end

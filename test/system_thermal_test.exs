@@ -31,7 +31,16 @@ defmodule Canaryd.SystemThermalTest do
              cpu_temperature_c: 71.2,
              gpu_temperature_c: 68.9,
              battery_temperature_c: 40.5
-           }) == "CPU 71.2 C; GPU 68.9 C; battery 40.5 C"
+           }) == "CPU 71.2°C; GPU 68.9°C; battery 40.5°C"
+  end
+
+  test "omits unavailable battery temperature" do
+    assert System.temperature_summary(%{
+             temperature_source: :macmon,
+             cpu_temperature_c: 74.7,
+             gpu_temperature_c: 74.5,
+             battery_temperature_c: nil
+           }) == "CPU 74.7°C; GPU 74.5°C"
   end
 
   test "reports unavailable chip sensors without hiding battery temperature" do
@@ -40,7 +49,16 @@ defmodule Canaryd.SystemThermalTest do
              cpu_temperature_c: nil,
              gpu_temperature_c: nil,
              battery_temperature_c: 40.5
-           }) == "CPU/GPU temperature unavailable; battery 40.5 C"
+           }) == "CPU/GPU temperature unavailable; battery 40.5°C"
+  end
+
+  test "omits battery text when all temperature sensors are unavailable" do
+    assert System.temperature_summary(%{
+             temperature_source: :unavailable,
+             cpu_temperature_c: nil,
+             gpu_temperature_c: nil,
+             battery_temperature_c: nil
+           }) == "CPU/GPU temperature unavailable"
   end
 
   test "parses high CPU processes and protects system processes" do

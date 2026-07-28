@@ -84,12 +84,19 @@ defmodule Canaryd.System do
 
   @doc "Formats chip sensor and battery temperatures without mixing their meaning."
   def temperature_summary(%{temperature_source: :macmon} = system) do
-    "CPU #{system.cpu_temperature_c} C; GPU #{system.gpu_temperature_c} C; " <>
-      "battery #{format_temperature(system.battery_temperature_c)} C"
+    [
+      "CPU #{format_celsius(system.cpu_temperature_c)}",
+      "GPU #{format_celsius(system.gpu_temperature_c)}",
+      battery_temperature_summary(system.battery_temperature_c)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("; ")
   end
 
   def temperature_summary(system) do
-    "CPU/GPU temperature unavailable; battery #{format_temperature(system.battery_temperature_c)} C"
+    ["CPU/GPU temperature unavailable", battery_temperature_summary(system.battery_temperature_c)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("; ")
   end
 
   @doc false
@@ -120,11 +127,11 @@ defmodule Canaryd.System do
   defp chip_temperature_warnings(warnings, temperatures) do
     warnings =
       if above_threshold?(temperatures.cpu_temperature_c),
-        do: ["CPU temperature #{temperatures.cpu_temperature_c} C" | warnings],
+        do: ["CPU temperature #{format_celsius(temperatures.cpu_temperature_c)}" | warnings],
         else: warnings
 
     if above_threshold?(temperatures.gpu_temperature_c),
-      do: ["GPU temperature #{temperatures.gpu_temperature_c} C" | warnings],
+      do: ["GPU temperature #{format_celsius(temperatures.gpu_temperature_c)}" | warnings],
       else: warnings
   end
 
@@ -132,8 +139,13 @@ defmodule Canaryd.System do
     is_number(value) and value >= @chip_temperature_warn_c
   end
 
-  defp format_temperature(value) when is_number(value), do: value
-  defp format_temperature(_value), do: "unavailable"
+  defp format_celsius(value), do: "#{value}°C"
+
+  defp battery_temperature_summary(value) when is_number(value) do
+    "battery #{format_celsius(value)}"
+  end
+
+  defp battery_temperature_summary(_value), do: nil
 
   defp load do
     cores =
