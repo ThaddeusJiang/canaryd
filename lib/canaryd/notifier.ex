@@ -1,78 +1,10 @@
 defmodule Canaryd.Notifier do
-  @moduledoc "macOS notifications and action dialogs. Used only when user attention is required."
+  @moduledoc "macOS notifications. Used only when user attention is required."
+
+  alias Canaryd.NotificationHelper
 
   @action_timeout_sec 120
   @warning_timeout_sec 30
-
-  @action_script """
-  on run argv
-    set processName to item 1 of argv
-
-    try
-      set response to display alert "Mac Health" message (processName & " is not responding." & return & return & "Close or Restart can force-stop this instance. macOS opens the service again when needed.") as warning buttons {"Ignore", "Close", "Restart"} default button "Restart" cancel button "Ignore" giving up after #{@action_timeout_sec}
-
-      if gave up of response then
-        return "ignore"
-      end if
-
-      set selectedButton to button returned of response
-
-      if selectedButton is "Restart" then
-        return "restart"
-      else if selectedButton is "Close" then
-        return "close"
-      else
-        return "ignore"
-      end if
-    on error number -128
-      return "ignore"
-    end try
-  end run
-  """
-
-  @thermal_action_script """
-  on run argv
-    set processName to item 1 of argv
-    set suspectSummary to item 2 of argv
-
-    try
-      set response to display alert "Mac temperature is high" message (processName & " is the leading CPU-related heat suspect." & return & return & suspectSummary & return & return & "CPU usage is correlation evidence. Close or Restart can discard unsaved data.") as warning buttons {"Ignore", "Close", "Restart"} default button "Ignore" cancel button "Ignore" giving up after #{@action_timeout_sec}
-
-      if gave up of response then
-        return "ignore"
-      end if
-
-      set selectedButton to button returned of response
-
-      if selectedButton is "Restart" then
-        return "restart"
-      else if selectedButton is "Close" then
-        return "close"
-      else
-        return "ignore"
-      end if
-    on error number -128
-      return "ignore"
-    end try
-  end run
-  """
-
-  @temperature_warning_script """
-  use framework "AppKit"
-  use scripting additions
-
-  on run argv
-    set warningMessage to item 1 of argv
-    current application's NSApplication's sharedApplication()'s activateIgnoringOtherApps:true
-
-    try
-      display alert "Mac temperature warning" message warningMessage as warning buttons {"Ignore"} default button "Ignore" giving up after #{@warning_timeout_sec}
-      return "shown"
-    on error number -128
-      return "dismissed"
-    end try
-  end run
-  """
 
   def notify(title, message) do
     script =
@@ -82,41 +14,49 @@ defmodule Canaryd.Notifier do
     :ok
   end
 
-  @doc "Shows a visible, time-limited warning that does not depend on notification banners."
+  @doc "Sends a temperature warning that stays in Notification Center until dismissal."
   def warn_temperature(message) do
-    warn_temperature(message, &run_osascript/2)
+    warn_temperature(message, &run_notification_helper/2)
   end
 
   @doc false
   def warn_temperature(message, runner) do
-    case runner.("osascript", ["-e", @temperature_warning_script, message]) do
+    args = ["notify", "Mac temperature warning", message, Integer.to_string(@warning_timeout_sec)]
+
+    case runner.(NotificationHelper.executable_path(), args) do
       {_output, 0} -> :ok
-      {output, _status} -> {:error, {:dialog_failed, String.trim(output)}}
+      {output, _status} -> {:error, {:notification_failed, String.trim(output)}}
     end
   rescue
-    _ -> {:error, :dialog_failed}
+    _ -> {:error, :notification_failed}
   end
 
-  @doc "Shows a time-limited Close, Restart, or Ignore action dialog."
+  @doc "Sends a time-limited notification with Close and Restart actions."
   def choose_app_action(process_name) do
-    case System.cmd("osascript", ["-e", @action_script, process_name], stderr_to_stdout: true) do
-      {output, 0} -> parse_app_action(output)
-      {_output, _status} -> {:error, :dialog_failed}
-    end
-  rescue
-    _ -> {:error, :dialog_failed}
+    choose_app_action(process_name, &run_notification_helper/2)
   end
 
-  @doc "Shows thermal suspects and asks the user to close, restart, or ignore one app."
-  def choose_thermal_action(process_name, suspect_summary) do
-    args = ["-e", @thermal_action_script, process_name, suspect_summary]
+  @doc false
+  def choose_app_action(process_name, runner) do
+    message =
+      "#{process_name} is not responding. Close or Restart can force-stop this instance. " <>
+        "macOS opens the service again when needed."
 
-    case System.cmd("osascript", args, stderr_to_stdout: true) do
-      {output, 0} -> parse_app_action(output)
-      {_output, _status} -> {:error, :dialog_failed}
-    end
-  rescue
-    _ -> {:error, :dialog_failed}
+    choose_action("Mac Health", message, runner)
+  end
+
+  @doc "Sends thermal details in a notification with Close and Restart actions."
+  def choose_thermal_action(process_name, suspect_summary) do
+    choose_thermal_action(process_name, suspect_summary, &run_notification_helper/2)
+  end
+
+  @doc false
+  def choose_thermal_action(process_name, suspect_summary, runner) do
+    message =
+      "#{process_name} is the leading CPU-related heat suspect.\n#{suspect_summary}\n" <>
+        "CPU usage is correlation evidence. Close or Restart can discard unsaved data."
+
+    choose_action("Mac temperature is high", message, runner)
   end
 
   @doc false
@@ -131,7 +71,18 @@ defmodule Canaryd.Notifier do
 
   defp escape(s), do: String.replace(s, "\"", "\\\"")
 
-  defp run_osascript(bin, args) do
+  defp choose_action(title, message, runner) do
+    args = ["action", title, message, Integer.to_string(@action_timeout_sec)]
+
+    case runner.(NotificationHelper.executable_path(), args) do
+      {output, 0} -> parse_app_action(output)
+      {_output, _status} -> {:error, :notification_failed}
+    end
+  rescue
+    _ -> {:error, :notification_failed}
+  end
+
+  defp run_notification_helper(bin, args) do
     System.cmd(bin, args, stderr_to_stdout: true)
   end
 end

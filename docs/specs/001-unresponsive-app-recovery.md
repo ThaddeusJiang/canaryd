@@ -44,7 +44,9 @@ Recover a confirmed unresponsive process with the correct safety policy.
 - A responsive or stopped app clears its pending observation.
 - Two consecutive unresponsive observations confirm a hang.
 - A confirmed hang starts an automatic restart when the cooldown permits it.
-- A confirmed allowlisted service sends a notification and asks the user to ignore, close, or restart it.
+- A confirmed allowlisted service sends an actionable notification.
+- The user can close or restart the service from the notification.
+- The user can dismiss the notification to ignore the service.
 - An app that stays unresponsive during cooldown becomes blocked.
 - A responsive or stopped app clears its blocked state.
 
@@ -79,17 +81,43 @@ Recover a confirmed unresponsive process with the correct safety policy.
 6. Confirm an unresponsive process in two consecutive check rounds.
 7. Restart a confirmed third-party app automatically.
 8. Send a Notification Center notification for a confirmed interactive service.
-9. Show an action dialog with Ignore, Close, and Restart.
-10. Close the action dialog after 120 seconds and treat timeout as Ignore.
-11. Send `SIGTERM` to close the current `CursorUIViewService` instance.
-12. Send `SIGKILL` if the service does not stop within the grace period.
-13. For Restart, wait up to five seconds for launchd or an XPC client to start a new PID.
-14. Report restart failure when a new PID does not appear in that period.
-15. Send `SIGTERM` to a confirmed third-party app.
-16. Send `SIGKILL` only when the same app process does not stop within the grace period.
-17. Wait for the old app PID to stop.
-18. Open the same third-party app bundle in the background.
-19. Log detection, user choice, restart, restart failure, and blocked events.
+9. Show Close and Restart actions in the notification.
+10. Do not activate an app or show a foreground dialog.
+11. Remove the notification after 120 seconds and treat dismiss or timeout as Ignore.
+12. Send `SIGTERM` to close the current `CursorUIViewService` instance.
+13. Send `SIGKILL` if the service does not stop within the grace period.
+14. For Restart, wait up to five seconds for launchd or an XPC client to start a new PID.
+15. Report restart failure when a new PID does not appear in that period.
+16. Send `SIGTERM` to a confirmed third-party app.
+17. Send `SIGKILL` only when the same app process does not stop within the grace period.
+18. Wait for the old app PID to stop.
+19. Open the same third-party app bundle in the background.
+20. Log detection, user choice, restart, restart failure, and blocked events.
+
+## BDD Scenarios
+
+### BDD-01 Select a recovery action without focus loss
+
+Given:
+- A confirmed allowlisted service is not responding.
+
+When:
+- canaryd asks the user to select a recovery action.
+
+Then:
+- Notification Center shows Restart and Close.
+- canaryd does not activate an app.
+- canaryd does not show a foreground dialog.
+- Dismiss or timeout returns Ignore.
+
+Test Plan:
+- Lowest useful level: unit test for the notification command contract.
+- First failing test: the notifier sends an actionable notification command.
+- Follow-up test: the native helper compiles for macOS.
+
+Acceptance Evidence:
+- `Canaryd.NotifierTest` actionable notification tests.
+- Swift helper compile check.
 
 Automatic termination can discard unsaved data. Confirmation and cooldown limits reduce this risk.
 
@@ -108,3 +136,9 @@ Automatic termination can discard unsaved data. Confirmation and cooldown limits
 ## Open Questions
 
 - None.
+
+## Acceptance Record
+
+| Scenario | Status | Evidence | Notes |
+| --- | --- | --- | --- |
+| BDD-01 | passed | `Canaryd.NotifierTest`, `Canaryd.NotificationHelperTest`, Swift type check, signed helper install, live notification run | The live run returned Ignore after dismiss or timeout. |
