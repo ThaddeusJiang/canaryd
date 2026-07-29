@@ -3,6 +3,11 @@ defmodule Canaryd.SystemThermalTest do
 
   alias Canaryd.System
 
+  test "converts HID idle nanoseconds to the internal millisecond unit" do
+    assert System.parse_idle_duration(~s("HIDIdleTime" = 1800000000000)) == 1_800_000
+    assert System.parse_idle_duration("missing") == 0
+  end
+
   test "parses battery temperature in tenths of kelvin" do
     output = ~s("Temperature" = 3131)
     assert System.parse_battery_temperature(output) == 40.0

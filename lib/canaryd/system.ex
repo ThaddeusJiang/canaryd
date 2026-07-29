@@ -8,14 +8,26 @@ defmodule Canaryd.System do
   @chip_temperature_warn_c 70.0
   @hot_process_cpu_min 20.0
 
-  @doc "Seconds since last keyboard/mouse input."
+  alias Canaryd.Duration
+
+  @doc "Milliseconds since the last keyboard or mouse input."
   def idle_duration do
     case cmd("ioreg", ["-c", "IOHIDSystem", "-d", "1"]) do
       {:ok, out} ->
-        case Regex.run(~r/"HIDIdleTime" = (\d+)/, out) do
-          [_, ns] -> div(String.to_integer(ns), 1_000_000_000)
-          _ -> 0
-        end
+        parse_idle_duration(out)
+
+      _ ->
+        0
+    end
+  end
+
+  @doc false
+  def parse_idle_duration(output) do
+    case Regex.run(~r/"HIDIdleTime" = (\d+)/, output) do
+      [_, nanoseconds] ->
+        nanoseconds
+        |> String.to_integer()
+        |> Duration.from_external(:nanosecond)
 
       _ ->
         0

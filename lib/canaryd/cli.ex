@@ -1,7 +1,7 @@
 defmodule Canaryd.CLI do
   @moduledoc "escript entry: check | thermal-check | status | history [target] | install | uninstall"
 
-  alias Canaryd.{Checker, Setup, Store, System, ThermalMonitor, UnresponsiveMonitor}
+  alias Canaryd.{Checker, Duration, Setup, Store, System, ThermalMonitor, UnresponsiveMonitor}
   alias Canaryd.Apps.CleanClip
 
   def main(argv) do
@@ -16,6 +16,8 @@ defmodule Canaryd.CLI do
         IO.puts("another check is running, skipping")
 
       {:skipped_idle, idle, sys, apps} ->
+        idle = Duration.to_external(idle, :second)
+
         IO.puts(
           "idle #{idle}s, CleanClip probe skipped; system warnings: #{length(sys.warnings)}; " <>
             "#{thermal_summary(sys)}; #{app_check_summary(apps)}"
@@ -72,7 +74,7 @@ defmodule Canaryd.CLI do
     end)
 
     IO.puts("\ncleanclip process alive: #{CleanClip.process_alive?()}")
-    IO.puts("user idle: #{idle}s")
+    IO.puts("user idle: #{Duration.to_external(idle, :second)}s")
     IO.puts(thermal_summary(current_system))
   end
 

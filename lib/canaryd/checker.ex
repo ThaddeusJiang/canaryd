@@ -10,10 +10,19 @@ defmodule Canaryd.Checker do
        notify only when blocked.
   """
 
-  alias Canaryd.{Notifier, StateMachine, Store, System, ThermalMonitor, UnresponsiveMonitor}
+  alias Canaryd.{
+    Duration,
+    Notifier,
+    StateMachine,
+    Store,
+    System,
+    ThermalMonitor,
+    UnresponsiveMonitor
+  }
+
   alias Canaryd.Apps.{CleanClip, Unresponsive}
 
-  @idle_skip_threshold 1_800
+  @idle_skip_threshold Duration.minutes(30)
 
   def run do
     Store.with_tables(fn state, events ->

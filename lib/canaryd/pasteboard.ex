@@ -5,10 +5,11 @@ defmodule Canaryd.Pasteboard do
 
   @probe_script """
   ObjC.import("AppKit")
+  const durationScale = 1000
 
   function run(argv) {
     const marker = argv[0]
-    const waitDuration = Number(argv[1]) / 1000
+    const waitDuration = Number(argv[1])
     const pasteboardName = argv[2]
     const pasteboard = pasteboardName === ""
       ? $.NSPasteboard.generalPasteboard
@@ -38,7 +39,7 @@ defmodule Canaryd.Pasteboard do
     }
 
     const markerChangeCount = Number(pasteboard.changeCount)
-    delay(waitDuration)
+    delay(waitDuration / durationScale)
 
     if (Number(pasteboard.changeCount) === markerChangeCount) {
       pasteboard.clearContents

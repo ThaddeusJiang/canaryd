@@ -1,10 +1,10 @@
 defmodule Canaryd.Notifier do
   @moduledoc "macOS notifications. Used only when user attention is required."
 
-  alias Canaryd.NotificationHelper
+  alias Canaryd.{Duration, NotificationHelper}
 
-  @action_timeout 120
-  @notification_timeout 30
+  @action_timeout Duration.minutes(2)
+  @notification_timeout Duration.seconds(30)
 
   def notify(title, message) do
     notify(title, message, &run_notification_helper/2)

@@ -3,11 +3,13 @@ defmodule Canaryd.UnresponsiveMonitor do
   Pure confirmation and cooldown policy for unresponsive GUI apps.
   """
 
+  alias Canaryd.Duration
+
   @confirmation_count 2
-  @restart_cooldown 3_600
-  @restart_retention 86_400
-  @prompt_cooldown 3_600
-  @prompt_retention 86_400
+  @restart_cooldown Duration.hours(1)
+  @restart_retention Duration.days(1)
+  @prompt_cooldown Duration.hours(1)
+  @prompt_retention Duration.days(1)
 
   def default_state do
     %{
@@ -61,7 +63,7 @@ defmodule Canaryd.UnresponsiveMonitor do
     }
   end
 
-  @doc "Restart cooldown in seconds."
+  @doc "Restart cooldown in milliseconds."
   def restart_cooldown, do: @restart_cooldown
 
   defp observe(state, app, now) do
@@ -118,14 +120,14 @@ defmodule Canaryd.UnresponsiveMonitor do
   defp restart_allowed?(state, id, now) do
     case Map.get(state.restarts, id) do
       nil -> true
-      last_restart -> DateTime.diff(now, last_restart, :second) >= @restart_cooldown
+      last_restart -> Duration.between(now, last_restart) >= @restart_cooldown
     end
   end
 
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
-      last_prompt -> DateTime.diff(now, last_prompt, :second) >= @prompt_cooldown
+      last_prompt -> Duration.between(now, last_prompt) >= @prompt_cooldown
     end
   end
 
@@ -136,12 +138,12 @@ defmodule Canaryd.UnresponsiveMonitor do
 
     recent_restarts =
       Map.filter(restarts, fn {_id, restarted_at} ->
-        DateTime.diff(now, restarted_at, :second) < @restart_retention
+        Duration.between(now, restarted_at) < @restart_retention
       end)
 
     recent_prompts =
       Map.filter(prompts, fn {_id, prompted_at} ->
-        DateTime.diff(now, prompted_at, :second) < @prompt_retention
+        Duration.between(now, prompted_at) < @prompt_retention
       end)
 
     %{

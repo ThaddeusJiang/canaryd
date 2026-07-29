@@ -35,6 +35,14 @@ defmodule Canaryd.NotificationHelperTest do
     assert source =~ ~s|finish("ignore")|
   end
 
+  test "converts the millisecond command contract at the Swift timer boundary" do
+    source = NotificationHelper.source()
+
+    assert source =~ "private let durationScale: TimeInterval = 1_000"
+    assert source =~ "withTimeInterval: timerInterval(for: authorizationTimeout)"
+    assert source =~ "withTimeInterval: timerInterval(for: timeout)"
+  end
+
   test "uses the Canaryd name and logo" do
     assert NotificationHelper.bundle_spec() == %{
              app_name: "Canaryd.app",

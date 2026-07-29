@@ -11,7 +11,9 @@ defmodule Canaryd.StateMachine do
     * probe fail, restart on cooldown, failures >= 3 -> :blocked (notify once)
   """
 
-  @restart_cooldown 3_600
+  alias Canaryd.Duration
+
+  @restart_cooldown Duration.hours(1)
   @block_threshold 3
 
   def transition(state, :ok, now) do
@@ -63,9 +65,9 @@ defmodule Canaryd.StateMachine do
   defp restart_allowed?(nil, _now), do: true
 
   defp restart_allowed?(last, now) do
-    DateTime.diff(now, last, :second) >= @restart_cooldown
+    Duration.between(now, last) >= @restart_cooldown
   end
 
-  @doc "Restart cooldown in seconds."
+  @doc "Restart cooldown in milliseconds."
   def restart_cooldown, do: @restart_cooldown
 end

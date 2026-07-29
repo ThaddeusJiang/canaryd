@@ -27,7 +27,7 @@ defmodule Canaryd.NotifierTest do
              "notify",
              "Mac Health",
              "CleanClip needs attention.",
-             "30"
+             "30000"
            ]
   end
 
@@ -48,7 +48,7 @@ defmodule Canaryd.NotifierTest do
              "notify",
              "Mac temperature warning",
              "CPU 74.6°C; GPU 72.3°C",
-             "30"
+             "30000"
            ]
   end
 
@@ -76,7 +76,7 @@ defmodule Canaryd.NotifierTest do
              "action",
              "Mac Health",
              "CursorUIViewService is not responding. Close or Restart can force-stop this instance. macOS opens the service again when needed.",
-             "120"
+             "120000"
            ]
   end
 
@@ -86,7 +86,7 @@ defmodule Canaryd.NotifierTest do
                "action",
                "Mac temperature is high",
                "Code is the leading CPU-related heat suspect.\nCPU 75.0°C\nCPU usage is correlation evidence. Close or Restart can discard unsaved data.",
-               "120"
+               "120000"
              ]
 
       {"close\n", 0}

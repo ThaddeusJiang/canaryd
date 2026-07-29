@@ -3,8 +3,11 @@ defmodule Canaryd.Temperature do
   Reads Apple Silicon CPU and GPU sensor temperatures from macmon.
   """
 
+  alias Canaryd.Duration
+
   @supported_version "macmon 0.8.0"
-  @sample_args ["pipe", "--samples", "3", "--interval", "250"]
+  @sample_interval Duration.milliseconds(250)
+  @sample_args ["pipe", "--samples", "3", "--interval", Integer.to_string(@sample_interval)]
   @known_paths ["/opt/homebrew/bin/macmon", "/usr/local/bin/macmon"]
 
   @doc "Returns average CPU and GPU sensor temperatures in degrees Celsius."

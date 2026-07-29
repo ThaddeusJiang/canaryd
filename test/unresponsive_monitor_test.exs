@@ -1,9 +1,11 @@
 defmodule Canaryd.UnresponsiveMonitorTest do
   use ExUnit.Case, async: true
 
-  alias Canaryd.UnresponsiveMonitor
+  alias Canaryd.{Duration, UnresponsiveMonitor}
 
   @t0 ~U[2026-07-26 00:00:00Z]
+
+  defp later(value), do: Duration.add(@t0, Duration.seconds(value))
 
   defp app(overrides \\ %{}) do
     Map.merge(
@@ -32,7 +34,7 @@ defmodule Canaryd.UnresponsiveMonitorTest do
   end
 
   test "exposes the restart cooldown" do
-    assert UnresponsiveMonitor.restart_cooldown() == 3_600
+    assert UnresponsiveMonitor.restart_cooldown() == 3_600_000
   end
 
   test "requires two consecutive observations before restart" do
@@ -42,7 +44,7 @@ defmodule Canaryd.UnresponsiveMonitorTest do
     assert first_actions == [{:detected, app(), 1}]
 
     {state, second_actions} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 300, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(300))
 
     assert second_actions == [{:restart, app()}]
     assert UnresponsiveMonitor.pending_apps(state) == []
@@ -52,16 +54,16 @@ defmodule Canaryd.UnresponsiveMonitorTest do
     {state, _actions} =
       UnresponsiveMonitor.evaluate(UnresponsiveMonitor.default_state(), [app()], @t0)
 
-    {state, []} = UnresponsiveMonitor.evaluate(state, [], DateTime.add(@t0, 300, :second))
+    {state, []} = UnresponsiveMonitor.evaluate(state, [], later(300))
 
     {_state, actions} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 600, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(600))
 
     assert actions == [{:detected, app(), 1}]
   end
 
   test "an unavailable scan resets confirmation but keeps restart cooldowns" do
-    previous_restart = DateTime.add(@t0, -300, :second)
+    previous_restart = later(-300)
 
     state = %{
       UnresponsiveMonitor.default_state()
@@ -91,7 +93,7 @@ defmodule Canaryd.UnresponsiveMonitorTest do
       UnresponsiveMonitor.evaluate(
         state,
         [interactive_service()],
-        DateTime.add(@t0, 300, :second)
+        later(300)
       )
 
     assert actions == [{:choose, interactive_service()}]
@@ -110,21 +112,21 @@ defmodule Canaryd.UnresponsiveMonitorTest do
       UnresponsiveMonitor.evaluate(
         state,
         [interactive_service()],
-        DateTime.add(@t0, 300, :second)
+        later(300)
       )
 
     {state, [{:detected, _service, 1}]} =
       UnresponsiveMonitor.evaluate(
         state,
         [interactive_service()],
-        DateTime.add(@t0, 600, :second)
+        later(600)
       )
 
     {_state, actions} =
       UnresponsiveMonitor.evaluate(
         state,
         [interactive_service()],
-        DateTime.add(@t0, 900, :second)
+        later(900)
       )
 
     assert actions == []
@@ -135,18 +137,18 @@ defmodule Canaryd.UnresponsiveMonitorTest do
       UnresponsiveMonitor.evaluate(UnresponsiveMonitor.default_state(), [app()], @t0)
 
     {state, [{:restart, _app}]} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 300, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(300))
 
     {state, [{:detected, _app, 1}]} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 600, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(600))
 
     {state, actions} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 900, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(900))
 
     assert actions == [{:blocked, app()}]
 
     {_state, actions} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 1_200, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(1_200))
 
     assert actions == []
   end
@@ -156,13 +158,13 @@ defmodule Canaryd.UnresponsiveMonitorTest do
       UnresponsiveMonitor.evaluate(UnresponsiveMonitor.default_state(), [app()], @t0)
 
     {state, [{:restart, _app}]} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 300, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(300))
 
     {state, _actions} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 3_601, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(3_601))
 
     {_state, actions} =
-      UnresponsiveMonitor.evaluate(state, [app()], DateTime.add(@t0, 3_901, :second))
+      UnresponsiveMonitor.evaluate(state, [app()], later(3_901))
 
     assert actions == [{:restart, app()}]
   end
@@ -174,7 +176,7 @@ defmodule Canaryd.UnresponsiveMonitorTest do
       UnresponsiveMonitor.evaluate(UnresponsiveMonitor.default_state(), [app(), second], @t0)
 
     {_state, actions} =
-      UnresponsiveMonitor.evaluate(state, [app(), second], DateTime.add(@t0, 300, :second))
+      UnresponsiveMonitor.evaluate(state, [app(), second], later(300))
 
     assert actions == [{:restart, app()}, {:restart, second}]
   end

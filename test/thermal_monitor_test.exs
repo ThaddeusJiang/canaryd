@@ -1,9 +1,11 @@
 defmodule Canaryd.ThermalMonitorTest do
   use ExUnit.Case, async: true
 
-  alias Canaryd.ThermalMonitor
+  alias Canaryd.{Duration, ThermalMonitor}
 
   @t0 ~U[2026-07-27 00:00:00Z]
+
+  defp later(value), do: Duration.add(@t0, Duration.seconds(value))
 
   defp app(overrides \\ %{}) do
     Map.merge(
@@ -26,7 +28,7 @@ defmodule Canaryd.ThermalMonitorTest do
     assert first_actions == [{:alert, app(), [app()]}]
 
     {_state, second_actions} =
-      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 300, :second))
+      ThermalMonitor.evaluate(state, true, [app()], later(300))
 
     assert second_actions == [{:choose, app(), [app()]}]
   end
@@ -36,7 +38,7 @@ defmodule Canaryd.ThermalMonitorTest do
       ThermalMonitor.evaluate(ThermalMonitor.default_state(), true, [app()], @t0)
 
     {state, actions} =
-      ThermalMonitor.evaluate(state, false, [app()], DateTime.add(@t0, 300, :second))
+      ThermalMonitor.evaluate(state, false, [app()], later(300))
 
     assert actions == []
     assert state.observations == %{}
@@ -56,10 +58,10 @@ defmodule Canaryd.ThermalMonitorTest do
       ThermalMonitor.evaluate(ThermalMonitor.default_state(), true, [app()], @t0)
 
     {state, [{:choose, _app, _suspects}]} =
-      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 300, :second))
+      ThermalMonitor.evaluate(state, true, [app()], later(300))
 
     {_state, actions} =
-      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 600, :second))
+      ThermalMonitor.evaluate(state, true, [app()], later(600))
 
     assert actions == []
   end
@@ -69,18 +71,18 @@ defmodule Canaryd.ThermalMonitorTest do
       ThermalMonitor.evaluate(ThermalMonitor.default_state(), true, [app()], @t0)
 
     {state, []} =
-      ThermalMonitor.evaluate(state, false, [], DateTime.add(@t0, 300, :second))
+      ThermalMonitor.evaluate(state, false, [], later(300))
 
     {state, actions} =
-      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 600, :second))
+      ThermalMonitor.evaluate(state, true, [app()], later(600))
 
     assert actions == []
 
     {state, []} =
-      ThermalMonitor.evaluate(state, false, [], DateTime.add(@t0, 900, :second))
+      ThermalMonitor.evaluate(state, false, [], later(900))
 
     {_state, actions} =
-      ThermalMonitor.evaluate(state, true, [app()], DateTime.add(@t0, 901, :second))
+      ThermalMonitor.evaluate(state, true, [app()], later(901))
 
     assert actions == [{:alert, app(), [app()]}]
   end

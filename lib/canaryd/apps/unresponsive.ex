@@ -7,8 +7,10 @@ defmodule Canaryd.Apps.Unresponsive do
   unavailable and does not trigger any process action.
   """
 
+  alias Canaryd.Duration
+
   @term_grace_attempts 10
-  @termination_grace 200
+  @termination_grace Duration.milliseconds(200)
   @kill_grace_attempts 10
   @replacement_attempts 25
   @cursor_ui_service "com.apple.TextInputUI.xpc.CursorUIViewService"
