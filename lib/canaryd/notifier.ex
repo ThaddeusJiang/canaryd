@@ -3,8 +3,8 @@ defmodule Canaryd.Notifier do
 
   alias Canaryd.NotificationHelper
 
-  @action_timeout_sec 120
-  @notification_timeout_sec 30
+  @action_timeout 120
+  @notification_timeout 30
 
   def notify(title, message) do
     notify(title, message, &run_notification_helper/2)
@@ -64,7 +64,7 @@ defmodule Canaryd.Notifier do
   end
 
   defp send_notification(title, message, runner) do
-    args = ["notify", title, message, Integer.to_string(@notification_timeout_sec)]
+    args = ["notify", title, message, Integer.to_string(@notification_timeout)]
 
     case runner.(NotificationHelper.executable_path(), args) do
       {_output, 0} -> :ok
@@ -75,7 +75,7 @@ defmodule Canaryd.Notifier do
   end
 
   defp choose_action(title, message, runner) do
-    args = ["action", title, message, Integer.to_string(@action_timeout_sec)]
+    args = ["action", title, message, Integer.to_string(@action_timeout)]
 
     case runner.(NotificationHelper.executable_path(), args) do
       {output, 0} -> parse_app_action(output)
