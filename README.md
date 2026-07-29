@@ -1,100 +1,265 @@
-# canaryd 🐤
+<p align="center">
+  <img src="./priv/canaryd-logo.png" width="152" alt="Canaryd logo">
+</p>
 
-> Canary in the coal mine for your Mac.
+<h1 align="center">canaryd</h1>
 
-macOS health monitor that detects **overheating**, **apps marked Not Responding**, and **apps that are alive but silently dead** (process running, function stopped — e.g. CleanClip stops recording the clipboard). Self-heals via quiet restarts; only notifies the user when a target is confirmed `blocked`.
+<p align="center">
+  A quiet health monitor for your Mac.
+  <br>
+  It detects heat and stalled apps, then recovers them without taking your focus.
+</p>
 
-Pure Elixir/OTP, DETS storage, launchd-scheduled. Exact Apple Silicon temperature
-monitoring uses the pinned `macmon 0.8.0` sensor helper.
+<p align="center">
+  <a href="https://hex.pm/packages/canaryd"><img src="https://img.shields.io/hexpm/v/canaryd?style=flat-square&color=F5B700" alt="Hex package version"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-243447?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-243447?style=flat-square" alt="macOS">
+  <img src="https://img.shields.io/badge/Elixir-1.15%2B-6E4A7E?style=flat-square" alt="Elixir 1.15 or later">
+</p>
 
-## Requirements
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#development">Development</a>
+</p>
 
-- macOS (Apple Silicon or Intel)
-- Erlang/OTP + Elixir (any recent version; `~> 1.15`)
-- `macmon 0.8.0` for exact CPU and GPU temperature on Apple Silicon
-- Xcode Command Line Tools for the built-in notification helper
+---
+
+Canaryd is a local macOS watchdog. It uses exact Apple Silicon temperature
+data, macOS responsiveness state, and a reversible clipboard probe to find
+problems that a simple process check can miss.
+
+- **Watch heat.** Detect CPU or GPU temperatures at or above 70°C and show the
+  processes that correlate with the load.
+- **Recover stalled apps.** Confirm that a GUI app is not responding before a
+  controlled restart.
+- **Verify CleanClip.** Check that CleanClip records new clipboard items, not
+  only that its process exists.
+- **Stay quiet.** Use background restarts and Notification Center. Do not open
+  a foreground alert or take input focus.
+- **Keep data local.** Store state, events, and logs on the Mac.
+
+## Status at a glance
+
+Run `canaryd status` to see health, recent recovery events, pending app hangs,
+and thermal pressure.
+
+![Example Canaryd status output](./docs/images/canaryd-status.svg)
+
+> The screenshot contains example values. Process names, temperatures, and
+> events come from your Mac.
 
 ## Install
 
-```sh
-brew install macmon
-brew pin macmon
-mix escript.install hex canaryd
+### Install with an AI agent
+
+Give this prompt to Codex, Claude Code, Cursor, or another coding agent:
+
+```text
+Read https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/SKILL.md and follow its instructions to install or update Canaryd on this Mac.
 ```
 
-Verify that `macmon --version` prints `macmon 0.8.0`. Canaryd rejects other
-versions until their JSON schema is verified.
+### Requirements
 
-The first time any `canaryd` command runs, it automatically registers two
-launchd agents. One agent runs an exact temperature and thermal-process check
-every minute. The other agent runs the full health check every 5 minutes. If an
-agent is ever deleted, the next `canaryd` invocation re-creates it. No manual
-plist setup is needed.
+- macOS on Apple Silicon or Intel
+- Erlang/OTP and Elixir 1.15 or later
+- Xcode Command Line Tools for the built-in notification helper
+- `macmon 0.8.0` for exact CPU and GPU temperatures on Apple Silicon
+
+Install the system tools:
+
+```sh
+xcode-select -p >/dev/null || xcode-select --install
+brew install elixir macmon
+brew pin macmon
+macmon --version
+```
+
+The last command must print `macmon 0.8.0`. Canaryd rejects another version
+until its JSON schema is verified.
+
+### Install the current source
+
+Use this method for the features documented in this repository:
+
+```sh
+git clone https://github.com/ThaddeusJiang/canaryd.git
+cd canaryd
+mix deps.get
+mix escript.build
+mix escript.install --force ./canaryd
+```
+
+### Install the published release
+
+Install the fixed Hex release:
+
+```sh
+mix escript.install hex canaryd 0.1.0
+```
+
+Add the Mix escript directory to `PATH` if the shell cannot find `canaryd`:
+
+```sh
+export PATH="$HOME/.mix/escripts:$PATH"
+```
+
+Add that line to the shell profile to keep the setting.
+
+### First run
+
+```sh
+canaryd status
+```
+
+The first command installs two launchd agents:
+
+| Agent | Interval | Work |
+| --- | ---: | --- |
+| Thermal check | 1 minute | Read temperature and find high-CPU processes |
+| Full health check | 5 minutes | Check the system, GUI apps, and CleanClip |
+
+Every command verifies these agents. If an agent is missing, Canaryd creates it
+again. You do not need to manage plist files.
 
 ## Usage
 
+| Command | Purpose |
+| --- | --- |
+| `canaryd status` | Show the current health snapshot and recent events |
+| `canaryd check` | Run one full health check now |
+| `canaryd thermal-check` | Run one thermal and high-CPU process check now |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, or `apps` |
+| `canaryd install` | Reinstall and load both launchd agents |
+| `canaryd uninstall` | Remove both launchd agents and the notification helper |
+
+Examples:
+
 ```sh
-canaryd check              # run one check round (launchd does this automatically)
-canaryd thermal-check      # run one temperature and thermal-process check
-canaryd status             # current health snapshot + recent events
-canaryd history [target]   # event timeline (cleanclip, system, thermal, or apps)
-canaryd install            # force (re)install of the launchd agents (normally automatic)
-canaryd uninstall          # remove the launchd agents
-```
-
-### Example: `canaryd status`
-
-```
-cleanclip: ok | last_probe=ok failures=0 | last_restart=- | updated=2026-07-26 01:00:00
-system: ok | last_probe=ok failures=0 | last_restart=- | updated=2026-07-26 01:00:00
-
-recent events:
-  2026-07-26 00:42:19  cleanclip  restarted
+canaryd check
+canaryd history thermal
+canaryd history apps
 ```
 
 ## How it works
 
-Health model:
+Canaryd applies a confirmation and cooldown policy before it changes another
+app.
 
-| Layer | What | Detection |
-|---|---|---|
-| L1 system | CPU/GPU temperature, thermal throttling, load, memory pressure | `macmon`, `pmset -g therm`, `sysctl vm.loadavg`, `memory_pressure`; warns after 3 consecutive rounds |
-| Heat source | exact chip temperature and high-CPU process correlation | `macmon`, `ps`; asks after 2 consecutive rounds |
-| GUI response | supported process marked Not Responding | reads the WindowServer state used by Force Quit |
-| Process | CleanClip process alive | `pgrep`; relaunches silently if dead |
-| Function | CleanClip actually recording | reversible clipboard probe → verifies a new history file appears |
+| Signal | Detection | Response |
+| --- | --- | --- |
+| CPU or GPU heat | Three `macmon` samples; keep the highest average | Notify on the first hot round; offer an action after the same safe app leads two rounds |
+| GUI app hang | Read the state that macOS uses in Force Quit | Confirm twice, then restart a supported third-party app |
+| CleanClip process | Check the process with `pgrep` | Restart it in the background when it is missing |
+| CleanClip function | Write a reversible clipboard marker and verify a new history entry | Restore the clipboard, then restart CleanClip after a failed probe |
+| System pressure | Read thermal throttling, load, and memory pressure | Warn after three consecutive full checks |
 
-**Idle skip:** when keyboard/mouse has been idle > 30 min (`ioreg HIDIdleTime`), the CleanClip functional probe is skipped. The system check and GUI response scan still run.
+### Safety rules
 
-**Clipboard safety:** the CleanClip probe saves every current pasteboard item and data type. It restores that snapshot after the probe only when no newer pasteboard write occurred. A user copy during the probe always wins.
+- Canaryd never treats battery temperature as CPU or GPU temperature.
+- A user clipboard change always takes priority over probe restoration.
+- A third-party GUI app must fail two consecutive checks before restart.
+- Apple apps, system daemons, and unsafe helper processes do not get automatic
+  actions.
+- Each app has a one-hour restart or prompt cooldown.
+- Automatic termination can discard unsaved data in a stalled app.
 
-**GUI app restart discipline:** a third-party, user-visible app must be marked Not Responding in two consecutive rounds. Canaryd then stops and opens the app in the background. Each app has a 1 h restart cooldown. Apple system apps, daemons, and helper processes are excluded unless listed below. Automatic termination can discard unsaved data.
+When the Mac is idle for more than 30 minutes, Canaryd skips the CleanClip
+functional probe. It still checks the system and GUI responsiveness.
 
-**Thermal process actions:** Canaryd uses `macmon 0.8.0` to read average CPU and GPU sensor temperature every minute. Each check keeps the highest value from a three-sample window. A CPU or GPU temperature of at least 70°C causes thermal pressure. Battery temperature stays a separate metric and never represents chip temperature. Canaryd sends a notification on the first thermal-pressure round. The warning stays in Notification Center until the user dismisses it. Canaryd applies a 15 min notification cooldown per leading process. During sustained thermal pressure, Canaryd lists up to five processes that use at least 20% CPU. CPU use is correlation evidence, not exact heat attribution. After the same third-party app leads two rounds, the notification offers Close and Restart. Dismiss or timeout means Ignore. Canaryd does not activate an app or take mouse focus. It never offers actions for Apple apps, system services, nested helper apps, or processes without a safe app bundle. Each app has a 1 h prompt cooldown.
+<details>
+<summary><strong>Detailed recovery policy</strong></summary>
 
-**Cursor UI service:** `CursorUIViewService` is an explicitly supported Apple text-input service. After two consecutive Not Responding rounds, Canaryd sends a 120 s actionable notification. The notification offers Close and Restart. Dismiss or timeout means Ignore. Close or Restart can force-stop the current instance. Restart waits for launchd or an XPC client to start a new PID. macOS can open the service again when needed. The notification has a 1 h cooldown.
+### Thermal pressure
 
-**CleanClip restart discipline:** probe failure → silent auto-restart (1 h cooldown, no user interruption); 3 consecutive failures within cooldown → status `blocked` + macOS notification. Recovery is logged automatically.
+Canaryd keeps the highest CPU and GPU average from a three-sample window. A CPU
+or GPU temperature of at least 70°C causes thermal pressure. Battery temperature
+stays separate and does not represent chip temperature.
 
-The Force Quit state has no public macOS API. Canaryd resolves the macOS interface at runtime. If a future macOS release removes it, this scan becomes unavailable and Canaryd does not stop any app.
+The first hot round sends a warning that stays in Notification Center until the
+user dismisses it. The warning has a 15-minute cooldown for each leading
+process. Canaryd lists up to five processes that use at least 20% CPU. CPU use
+is correlation evidence. It is not exact heat attribution.
 
-## Data
+After the same safe third-party app leads two rounds, the notification offers
+Close and Restart. Dismissal or timeout means Ignore. Canaryd does not activate
+the app or take mouse focus. Apple apps, system services, nested helper apps,
+and processes without a safe app bundle never get these actions. Each app has a
+one-hour prompt cooldown.
 
-All state lives in `~/Library/Application Support/canaryd/`:
+### GUI app recovery
 
-- `state.dets` — latest state-machine snapshot per target
-- `events.dets` — append-only event log for app, thermal, system, and probe actions
-- `stdout.log` / `stderr.log` — launchd output
+Canaryd uses the same responsiveness state that macOS shows in Force Quit. A
+third-party app must be not responding in two consecutive rounds. Canaryd then
+stops and opens the app in the background. Each app has a one-hour restart
+cooldown.
+
+The Force Quit state has no public macOS API. Canaryd resolves the interface at
+runtime. If a future macOS release removes it, the scan becomes unavailable and
+Canaryd does not stop an app.
+
+`CursorUIViewService` is an explicitly supported Apple text-input service.
+After two failed rounds, Canaryd sends a 120-second notification with Close and
+Restart actions. Dismissal or timeout means Ignore. Close or Restart can
+force-stop the current instance. macOS starts a new instance through launchd or
+an XPC client when it is needed. The notification has a one-hour cooldown.
+
+### CleanClip recovery
+
+The functional probe saves every pasteboard item and data type. It restores the
+snapshot only when no newer pasteboard write occurred. A user copy during the
+probe always wins.
+
+A probe failure causes a quiet restart with a one-hour cooldown. Three
+consecutive failures during the cooldown set the target to `blocked` and send a
+notification. Canaryd records recovery automatically.
+
+</details>
+
+## Local data
+
+Canaryd stores all runtime data in:
+
+```text
+~/Library/Application Support/canaryd/
+├── state.dets
+├── events.dets
+├── stdout.log
+└── stderr.log
+```
+
+`state.dets` contains the latest state-machine snapshot. `events.dets` contains
+the event history for app, thermal, system, and probe actions. The log files
+contain launchd output.
+
+## Uninstall
+
+Remove the launchd agents and the notification helper:
+
+```sh
+canaryd uninstall
+```
+
+To remove the saved state and logs too:
+
+```sh
+rm -r "$HOME/Library/Application Support/canaryd"
+```
 
 ## Development
 
 ```sh
-git clone https://github.com/ThaddeusJiang/canaryd
+git clone https://github.com/ThaddeusJiang/canaryd.git
 cd canaryd
-mix test               # state machine unit tests
-mix escript.build      # produces ./canaryd for local runs
+mix deps.get
+mix test
+mix escript.build
 ```
+
+The project uses pure Elixir/OTP, DETS storage, launchd, and a small Swift
+notification helper.
 
 ## License
 
-MIT
+[MIT](./LICENSE)
