@@ -10,6 +10,27 @@ defmodule Canaryd.NotifierTest do
     assert Notifier.parse_app_action("unknown\n") == {:error, :invalid_action}
   end
 
+  test "sends an informational notification through the Canaryd helper" do
+    caller = self()
+
+    runner = fn bin, args ->
+      send(caller, {:command, bin, args})
+      {"scheduled\n", 0}
+    end
+
+    assert Notifier.notify("Mac Health", "CleanClip needs attention.", runner) == :ok
+
+    assert_receive {:command, helper, args}
+    assert helper == Canaryd.NotificationHelper.executable_path()
+
+    assert args == [
+             "notify",
+             "Mac Health",
+             "CleanClip needs attention.",
+             "30"
+           ]
+  end
+
   test "sends a persistent temperature warning notification" do
     caller = self()
 

@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import Foundation
 import UserNotifications
 
@@ -31,6 +32,11 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate,
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = LSRegisterURL(
+            Bundle.main.bundleURL as CFURL,
+            true
+        )
+
         center.delegate = self
         authorizationTimer = Timer.scheduledTimer(
             withTimeInterval: 30,

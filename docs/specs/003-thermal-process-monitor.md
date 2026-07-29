@@ -130,6 +130,7 @@ Then:
 ## Cross-Spec Links
 
 - [001 Unresponsive App Recovery](./001-unresponsive-app-recovery.md)
+- [004 Notification Identity](./004-notification-identity.md)
 
 ## Relationships
 
