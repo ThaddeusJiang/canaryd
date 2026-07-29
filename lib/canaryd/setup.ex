@@ -15,12 +15,13 @@ defmodule Canaryd.Setup do
 
   @doc false
   def agent_specs(escript_path) do
+    # launchd StartInterval values use seconds.
     [
-      %{label: @label, command: "check", interval_sec: 300, escript_path: escript_path},
+      %{label: @label, command: "check", interval: 300, escript_path: escript_path},
       %{
         label: @thermal_label,
         command: "thermal-check",
-        interval_sec: 60,
+        interval: 60,
         escript_path: escript_path
       }
     ]
@@ -138,7 +139,7 @@ defmodule Canaryd.Setup do
         <string>#{agent.command}</string>
       </array>
       <key>StartInterval</key>
-      <integer>#{agent.interval_sec}</integer>
+      <integer>#{agent.interval}</integer>
       <key>RunAtLoad</key>
       <true/>
       <key>StandardOutPath</key>

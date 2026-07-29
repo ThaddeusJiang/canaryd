@@ -7,6 +7,10 @@ defmodule Canaryd.StateMachineTest do
 
   defp fresh, do: Store.default_state()
 
+  test "exposes the restart cooldown" do
+    assert StateMachine.restart_cooldown() == 3_600
+  end
+
   test "ok probe keeps status ok with no action" do
     {state, action} = StateMachine.transition(fresh(), :ok, @t0)
     assert action == :none

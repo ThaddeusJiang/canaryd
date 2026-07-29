@@ -31,6 +31,10 @@ defmodule Canaryd.UnresponsiveMonitorTest do
     }
   end
 
+  test "exposes the restart cooldown" do
+    assert UnresponsiveMonitor.restart_cooldown() == 3_600
+  end
+
   test "requires two consecutive observations before restart" do
     {state, first_actions} =
       UnresponsiveMonitor.evaluate(UnresponsiveMonitor.default_state(), [app()], @t0)

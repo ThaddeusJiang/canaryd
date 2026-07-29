@@ -6,9 +6,9 @@ defmodule Canaryd.ThermalMonitor do
   """
 
   @confirmation_count 2
-  @alert_cooldown_sec 900
-  @prompt_cooldown_sec 3_600
-  @retention_sec 86_400
+  @alert_cooldown 900
+  @prompt_cooldown 3_600
+  @retention 86_400
 
   def default_state do
     %{observations: %{}, alerts: %{}, prompts: %{}}
@@ -80,14 +80,14 @@ defmodule Canaryd.ThermalMonitor do
   defp alert_allowed?(state, id, now) do
     case Map.get(state.alerts, id) do
       nil -> true
-      alerted_at -> DateTime.diff(now, alerted_at, :second) >= @alert_cooldown_sec
+      alerted_at -> DateTime.diff(now, alerted_at, :second) >= @alert_cooldown
     end
   end
 
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
-      prompted_at -> DateTime.diff(now, prompted_at, :second) >= @prompt_cooldown_sec
+      prompted_at -> DateTime.diff(now, prompted_at, :second) >= @prompt_cooldown
     end
   end
 
@@ -104,7 +104,7 @@ defmodule Canaryd.ThermalMonitor do
 
   defp recent_entries(entries, now) do
     Map.filter(entries, fn {_id, recorded_at} ->
-      DateTime.diff(now, recorded_at, :second) < @retention_sec
+      DateTime.diff(now, recorded_at, :second) < @retention
     end)
   end
 end

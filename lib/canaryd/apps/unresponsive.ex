@@ -8,7 +8,7 @@ defmodule Canaryd.Apps.Unresponsive do
   """
 
   @term_grace_attempts 10
-  @term_grace_ms 200
+  @termination_grace 200
   @kill_grace_attempts 10
   @replacement_attempts 25
   @cursor_ui_service "com.apple.TextInputUI.xpc.CursorUIViewService"
@@ -263,7 +263,7 @@ defmodule Canaryd.Apps.Unresponsive do
 
   defp wait_for_stop(pid, attempts) do
     if process_alive?(pid) do
-      Process.sleep(@term_grace_ms)
+      Process.sleep(@termination_grace)
       wait_for_stop(pid, attempts - 1)
     else
       :ok
@@ -281,7 +281,7 @@ defmodule Canaryd.Apps.Unresponsive do
 
   defp wait_after_kill(pid, attempts) do
     if process_alive?(pid) do
-      Process.sleep(@term_grace_ms)
+      Process.sleep(@termination_grace)
       wait_after_kill(pid, attempts - 1)
     else
       :ok
@@ -295,7 +295,7 @@ defmodule Canaryd.Apps.Unresponsive do
       {output, _status} ->
         case replacement_pid(output, old_pid) do
           nil ->
-            Process.sleep(@term_grace_ms)
+            Process.sleep(@termination_grace)
             wait_for_replacement(name, old_pid, attempts - 1)
 
           new_pid ->

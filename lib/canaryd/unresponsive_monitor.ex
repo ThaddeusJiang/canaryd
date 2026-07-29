@@ -4,10 +4,10 @@ defmodule Canaryd.UnresponsiveMonitor do
   """
 
   @confirmation_count 2
-  @restart_cooldown_sec 3_600
-  @restart_retention_sec 86_400
-  @prompt_cooldown_sec 3_600
-  @prompt_retention_sec 86_400
+  @restart_cooldown 3_600
+  @restart_retention 86_400
+  @prompt_cooldown 3_600
+  @prompt_retention 86_400
 
   def default_state do
     %{
@@ -61,7 +61,8 @@ defmodule Canaryd.UnresponsiveMonitor do
     }
   end
 
-  def restart_cooldown_sec, do: @restart_cooldown_sec
+  @doc "Restart cooldown in seconds."
+  def restart_cooldown, do: @restart_cooldown
 
   defp observe(state, app, now) do
     previous_count = get_in(state, [:observations, app.id, :count]) || 0
@@ -117,14 +118,14 @@ defmodule Canaryd.UnresponsiveMonitor do
   defp restart_allowed?(state, id, now) do
     case Map.get(state.restarts, id) do
       nil -> true
-      last_restart -> DateTime.diff(now, last_restart, :second) >= @restart_cooldown_sec
+      last_restart -> DateTime.diff(now, last_restart, :second) >= @restart_cooldown
     end
   end
 
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
-      last_prompt -> DateTime.diff(now, last_prompt, :second) >= @prompt_cooldown_sec
+      last_prompt -> DateTime.diff(now, last_prompt, :second) >= @prompt_cooldown
     end
   end
 
@@ -135,12 +136,12 @@ defmodule Canaryd.UnresponsiveMonitor do
 
     recent_restarts =
       Map.filter(restarts, fn {_id, restarted_at} ->
-        DateTime.diff(now, restarted_at, :second) < @restart_retention_sec
+        DateTime.diff(now, restarted_at, :second) < @restart_retention
       end)
 
     recent_prompts =
       Map.filter(prompts, fn {_id, prompted_at} ->
-        DateTime.diff(now, prompted_at, :second) < @prompt_retention_sec
+        DateTime.diff(now, prompted_at, :second) < @prompt_retention
       end)
 
     %{

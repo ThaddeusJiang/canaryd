@@ -9,7 +9,7 @@ defmodule Canaryd.System do
   @hot_process_cpu_min 20.0
 
   @doc "Seconds since last keyboard/mouse input."
-  def idle_seconds do
+  def idle_duration do
     case cmd("ioreg", ["-c", "IOHIDSystem", "-d", "1"]) do
       {:ok, out} ->
         case Regex.run(~r/"HIDIdleTime" = (\d+)/, out) do

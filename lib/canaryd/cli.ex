@@ -42,7 +42,7 @@ defmodule Canaryd.CLI do
   end
 
   defp dispatch(["status"]) do
-    idle = System.idle_seconds()
+    idle = System.idle_duration()
     current_system = System.check()
 
     Store.with_tables(fn state, events ->

@@ -14,7 +14,7 @@ defmodule Canaryd.Apps.CleanClip do
   @history_dir Path.expand(
                  "~/Library/Application Support/com.antiless.cleanclip.mac/PrivateData/HistoryItemContents"
                )
-  @probe_wait_ms 4_000
+  @probe_wait 4_000
 
   def process_alive? do
     case System.cmd("pgrep", ["-f", @process_pattern], stderr_to_stdout: true) do
@@ -43,7 +43,7 @@ defmodule Canaryd.Apps.CleanClip do
     before = latest_mtime()
     marker = "canaryd-probe-#{System.unique_integer([:positive])}"
 
-    case Pasteboard.probe(marker, @probe_wait_ms) do
+    case Pasteboard.probe(marker, @probe_wait) do
       :ok ->
         probe_result(before, latest_mtime())
 

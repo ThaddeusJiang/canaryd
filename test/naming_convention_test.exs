@@ -1,0 +1,37 @@
+defmodule Canaryd.NamingConventionTest do
+  use ExUnit.Case, async: true
+
+  @snake_case_time_suffix ~r/\b[a-z][a-z0-9_]*_(?:sec|secs|second|seconds|ms|msec|millisecond|milliseconds)\b/
+  @camel_case_time_suffix ~r/\b[a-z][A-Za-z0-9]*(?:Secs|Seconds|Ms|Milliseconds)\b/
+
+  test "time units are not identifier suffixes" do
+    violations =
+      source_files()
+      |> Enum.flat_map(&file_violations/1)
+
+    assert violations == [],
+           "time units must be documented outside identifier names:\n#{Enum.join(violations, "\n")}"
+  end
+
+  defp source_files do
+    root = Path.expand("..", __DIR__)
+
+    ["lib/**/*.{ex,exs}", "priv/**/*.{swift}", "test/**/*.{ex,exs}"]
+    |> Enum.flat_map(&Path.wildcard(Path.join(root, &1)))
+    |> Enum.reject(&String.ends_with?(&1, "naming_convention_test.exs"))
+  end
+
+  defp file_violations(path) do
+    path
+    |> File.stream!()
+    |> Stream.with_index(1)
+    |> Enum.flat_map(fn {line, line_number} ->
+      if Regex.match?(@snake_case_time_suffix, line) or
+           Regex.match?(@camel_case_time_suffix, line) do
+        ["#{Path.relative_to_cwd(path)}:#{line_number}: #{String.trim(line)}"]
+      else
+        []
+      end
+    end)
+  end
+end
