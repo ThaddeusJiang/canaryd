@@ -38,6 +38,7 @@ Convert values only at framework or operating system boundaries.
 - Convert milliseconds to Swift `TimeInterval` seconds at the `Timer` call.
 - Convert milliseconds to JXA delay seconds at the `delay` call.
 - Pass milliseconds to macmon without conversion.
+- Migrate legacy skipped-idle event values to milliseconds when event history is read.
 
 ## BDD Scenario
 

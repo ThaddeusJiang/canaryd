@@ -4,6 +4,8 @@ defmodule Canaryd.NamingConventionTest do
   @snake_case_time_suffix ~r/\b[a-z][a-z0-9_]*_(?:sec|secs|second|seconds|ms|msec|millisecond|milliseconds|nanosecond|nanoseconds|minute|minutes|hour|hours|day|days)\b/
   @camel_case_time_suffix ~r/\b[a-z][A-Za-z0-9]*(?:Sec|Secs|Second|Seconds|Ms|Millisecond|Milliseconds|Nanosecond|Nanoseconds|Minute|Minutes|Hour|Hours|Day|Days)\b/
   @datetime_second_unit ~r/DateTime\.(?:add|diff)\([^\n]*:second/
+  @legacy_data_key "idle_" <> "seconds"
+  @legacy_migration_files ["store.ex", "store_test.exs"]
 
   test "time units are not identifier suffixes" do
     violations =
@@ -36,13 +38,21 @@ defmodule Canaryd.NamingConventionTest do
     |> File.stream!()
     |> Stream.with_index(1)
     |> Enum.flat_map(fn {line, line_number} ->
-      if Regex.match?(@snake_case_time_suffix, line) or
-           Regex.match?(@camel_case_time_suffix, line) do
+      if time_suffix?(line) and not legacy_data_key?(path, line) do
         ["#{Path.relative_to_cwd(path)}:#{line_number}: #{String.trim(line)}"]
       else
         []
       end
     end)
+  end
+
+  defp time_suffix?(line) do
+    Regex.match?(@snake_case_time_suffix, line) or
+      Regex.match?(@camel_case_time_suffix, line)
+  end
+
+  defp legacy_data_key?(path, line) do
+    Path.basename(path) in @legacy_migration_files and String.contains?(line, @legacy_data_key)
   end
 
   defp datetime_unit_violations(path) do
