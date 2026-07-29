@@ -1,0 +1,54 @@
+<svg width="1440" height="820" viewBox="0 0 1440 820" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title description">
+  <title id="title">Example Canaryd status output</title>
+  <desc id="description">A dark macOS terminal window shows a healthy Canaryd status result.</desc>
+
+  <rect width="1440" height="820" rx="28" fill="#111820"/>
+  <rect x="1" y="1" width="1438" height="818" rx="27" stroke="#31404D" stroke-width="2"/>
+
+  <path d="M1 76H1439" stroke="#31404D" stroke-width="2"/>
+  <circle cx="42" cy="38" r="10" fill="#FF5F57"/>
+  <circle cx="76" cy="38" r="10" fill="#FEBC2E"/>
+  <circle cx="110" cy="38" r="10" fill="#28C840"/>
+
+  <text x="720" y="45" text-anchor="middle" fill="#A8B4BF" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="600">canaryd — status</text>
+
+  <rect x="1168" y="24" width="226" height="30" rx="15" fill="#26323D"/>
+  <circle cx="1191" cy="39" r="6" fill="#67D391"/>
+  <text x="1208" y="45" fill="#DCE5EC" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="700" letter-spacing="0.7">EXAMPLE OUTPUT</text>
+
+  <g font-family="Menlo, Monaco, 'Courier New', monospace" font-size="25">
+    <text x="54" y="132" fill="#FFC928">❯</text>
+    <text x="91" y="132" fill="#F3F6F8">canaryd status</text>
+
+    <text x="54" y="196" fill="#F3F6F8">cleanclip:</text>
+    <text x="213" y="196" fill="#67D391">ok</text>
+    <text x="258" y="196" fill="#A8B4BF">| last_probe=ok failures=0 | last_restart=- | updated=2026-07-28 15:40:37</text>
+
+    <text x="54" y="238" fill="#F3F6F8">system:</text>
+    <text x="181" y="238" fill="#67D391">ok</text>
+    <text x="226" y="238" fill="#A8B4BF">| last_probe=ok failures=0 | last_restart=- | updated=2026-07-28 15:40:36</text>
+
+    <text x="54" y="310" fill="#F3F6F8">recent events:</text>
+    <text x="54" y="352" fill="#7F8D99">  none</text>
+
+    <text x="54" y="424" fill="#F3F6F8">unresponsive apps:</text>
+    <text x="355" y="424" fill="#67D391">none</text>
+
+    <text x="54" y="466" fill="#F3F6F8">thermal suspects pending:</text>
+    <text x="450" y="466" fill="#67D391">0</text>
+
+    <text x="54" y="538" fill="#F3F6F8">cleanclip process alive:</text>
+    <text x="435" y="538" fill="#67D391">true</text>
+
+    <text x="54" y="580" fill="#F3F6F8">user idle:</text>
+    <text x="213" y="580" fill="#A8B4BF">18s</text>
+
+    <text x="54" y="622" fill="#F3F6F8">thermal pressure:</text>
+    <text x="340" y="622" fill="#67D391">normal</text>
+    <text x="435" y="622" fill="#A8B4BF">; CPU 48.2°C; GPU 45.6°C; battery 34.1°C</text>
+  </g>
+
+  <path d="M54 716H1386" stroke="#31404D"/>
+  <circle cx="68" cy="760" r="7" fill="#FFC928"/>
+  <text x="89" y="766" fill="#A8B4BF" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="19" font-weight="600" letter-spacing="1.4">LOCAL MACOS HEALTH MONITOR</text>
+</svg>
