@@ -5,7 +5,6 @@ defmodule Canaryd.Pasteboard do
 
   @probe_script """
   ObjC.import("AppKit")
-  const durationScale = 1000
 
   function run(argv) {
     const marker = argv[0]
@@ -39,7 +38,7 @@ defmodule Canaryd.Pasteboard do
     }
 
     const markerChangeCount = Number(pasteboard.changeCount)
-    delay(waitDuration / durationScale)
+    delay(waitDuration / 1000)
 
     if (Number(pasteboard.changeCount) === markerChangeCount) {
       pasteboard.clearContents

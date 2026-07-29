@@ -31,19 +31,14 @@ defmodule Canaryd.StoreTest do
 
   test "migrates legacy idle event durations to milliseconds", %{table: table} do
     at = ~U[2026-07-29 00:00:00Z]
-    expected_duration = Duration.seconds(1_801)
 
     :dets.insert(table, {
       :legacy_key,
       %{target: :self, type: :skipped_idle, at: at, idle_seconds: 1_801}
     })
 
-    assert [
-             %{
-               idle_duration: ^expected_duration,
-               duration_unit: :millisecond
-             } = event
-           ] = Store.list_events(table, :self)
+    assert [%{duration_unit: :millisecond} = event] = Store.list_events(table, :self)
+    assert event.idle_duration == Duration.seconds(1_801)
 
     refute Map.has_key?(event, :idle_seconds)
 

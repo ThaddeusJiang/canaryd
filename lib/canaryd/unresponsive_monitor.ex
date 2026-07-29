@@ -5,11 +5,7 @@ defmodule Canaryd.UnresponsiveMonitor do
 
   alias Canaryd.Duration
 
-  @confirmation_count 2
   @restart_cooldown Duration.hours(1)
-  @restart_retention Duration.days(1)
-  @prompt_cooldown Duration.hours(1)
-  @prompt_retention Duration.days(1)
 
   def default_state do
     %{
@@ -71,7 +67,7 @@ defmodule Canaryd.UnresponsiveMonitor do
     count = previous_count + 1
 
     cond do
-      count < @confirmation_count ->
+      count < 2 ->
         observation = %{app: app, count: count}
 
         {%{state | observations: Map.put(state.observations, app.id, observation)},
@@ -127,7 +123,7 @@ defmodule Canaryd.UnresponsiveMonitor do
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
-      last_prompt -> Duration.between(now, last_prompt) >= @prompt_cooldown
+      last_prompt -> Duration.between(now, last_prompt) >= Duration.hours(1)
     end
   end
 
@@ -138,12 +134,12 @@ defmodule Canaryd.UnresponsiveMonitor do
 
     recent_restarts =
       Map.filter(restarts, fn {_id, restarted_at} ->
-        Duration.between(now, restarted_at) < @restart_retention
+        Duration.between(now, restarted_at) < Duration.days(1)
       end)
 
     recent_prompts =
       Map.filter(prompts, fn {_id, prompted_at} ->
-        Duration.between(now, prompted_at) < @prompt_retention
+        Duration.between(now, prompted_at) < Duration.days(1)
       end)
 
     %{

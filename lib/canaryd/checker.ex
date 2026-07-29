@@ -22,8 +22,6 @@ defmodule Canaryd.Checker do
 
   alias Canaryd.Apps.{CleanClip, Unresponsive}
 
-  @idle_skip_threshold Duration.minutes(30)
-
   def run do
     Store.with_tables(fn state, events ->
       idle = System.idle_duration()
@@ -33,7 +31,7 @@ defmodule Canaryd.Checker do
       sys = Map.put(sys, :thermal_monitor, thermal_monitor)
       app_monitor = check_unresponsive_apps(state, events)
 
-      if idle > @idle_skip_threshold do
+      if idle > Duration.minutes(30) do
         Store.log_event(events, :self, :skipped_idle, %{idle_duration: idle})
         {:skipped_idle, idle, sys, app_monitor}
       else

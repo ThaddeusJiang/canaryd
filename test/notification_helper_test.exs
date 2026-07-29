@@ -38,8 +38,8 @@ defmodule Canaryd.NotificationHelperTest do
   test "converts the millisecond command contract at the Swift timer boundary" do
     source = NotificationHelper.source()
 
-    assert source =~ "private let durationScale: TimeInterval = 1_000"
-    assert source =~ "withTimeInterval: timerInterval(for: authorizationTimeout)"
+    assert source =~ "duration / 1_000"
+    assert source =~ "withTimeInterval: timerInterval(for: 30_000)"
     assert source =~ "withTimeInterval: timerInterval(for: timeout)"
   end
 

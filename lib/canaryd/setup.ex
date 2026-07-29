@@ -131,8 +131,6 @@ defmodule Canaryd.Setup do
 
   @doc false
   def agent_plist(agent) do
-    start_interval = Duration.to_external(agent.interval, :second)
-
     """
     <?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -146,7 +144,7 @@ defmodule Canaryd.Setup do
         <string>#{agent.command}</string>
       </array>
       <key>StartInterval</key>
-      <integer>#{start_interval}</integer>
+      <integer>#{Duration.to_external(agent.interval, :second)}</integer>
       <key>RunAtLoad</key>
       <true/>
       <key>StandardOutPath</key>

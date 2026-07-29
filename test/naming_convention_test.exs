@@ -4,8 +4,6 @@ defmodule Canaryd.NamingConventionTest do
   @snake_case_time_suffix ~r/\b[a-z][a-z0-9_]*_(?:sec|secs|second|seconds|ms|msec|millisecond|milliseconds|nanosecond|nanoseconds|minute|minutes|hour|hours|day|days)\b/
   @camel_case_time_suffix ~r/\b[a-z][A-Za-z0-9]*(?:Sec|Secs|Second|Seconds|Ms|Millisecond|Milliseconds|Nanosecond|Nanoseconds|Minute|Minutes|Hour|Hours|Day|Days)\b/
   @datetime_second_unit ~r/DateTime\.(?:add|diff)\([^\n]*:second/
-  @legacy_data_key "idle_" <> "seconds"
-  @legacy_migration_files ["store.ex", "store_test.exs"]
 
   test "time units are not identifier suffixes" do
     violations =
@@ -52,7 +50,8 @@ defmodule Canaryd.NamingConventionTest do
   end
 
   defp legacy_data_key?(path, line) do
-    Path.basename(path) in @legacy_migration_files and String.contains?(line, @legacy_data_key)
+    Path.basename(path) in ["store.ex", "store_test.exs"] and
+      String.contains?(line, "idle_" <> "seconds")
   end
 
   defp datetime_unit_violations(path) do

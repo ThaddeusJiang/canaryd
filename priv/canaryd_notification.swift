@@ -6,11 +6,8 @@ import UserNotifications
 private let closeAction = "close"
 private let restartAction = "restart"
 private let categoryIdentifier = "canaryd.process-action"
-private let durationScale: TimeInterval = 1_000
-private let authorizationTimeout: TimeInterval = 30_000
-
 private func timerInterval(for duration: TimeInterval) -> TimeInterval {
-    duration / durationScale
+    duration / 1_000
 }
 
 func fail(_ message: String) -> Never {
@@ -45,7 +42,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate,
 
         center.delegate = self
         authorizationTimer = Timer.scheduledTimer(
-            withTimeInterval: timerInterval(for: authorizationTimeout),
+            withTimeInterval: timerInterval(for: 30_000),
             repeats: false
         ) { _ in
             fail("notification authorization timed out")

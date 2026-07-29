@@ -16,10 +16,9 @@ defmodule Canaryd.CLI do
         IO.puts("another check is running, skipping")
 
       {:skipped_idle, idle, sys, apps} ->
-        idle = Duration.to_external(idle, :second)
-
         IO.puts(
-          "idle #{idle}s, CleanClip probe skipped; system warnings: #{length(sys.warnings)}; " <>
+          "idle #{Duration.to_external(idle, :second)}s, CleanClip probe skipped; " <>
+            "system warnings: #{length(sys.warnings)}; " <>
             "#{thermal_summary(sys)}; #{app_check_summary(apps)}"
         )
 

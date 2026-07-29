@@ -14,7 +14,6 @@ defmodule Canaryd.StateMachine do
   alias Canaryd.Duration
 
   @restart_cooldown Duration.hours(1)
-  @block_threshold 3
 
   def transition(state, :ok, now) do
     action =
@@ -48,7 +47,7 @@ defmodule Canaryd.StateMachine do
              updated_at: now
          }, :restart}
 
-      failures >= @block_threshold ->
+      failures >= 3 ->
         {%{
            state
            | last_probe: :fail,
