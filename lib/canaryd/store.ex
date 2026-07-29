@@ -15,6 +15,8 @@ defmodule Canaryd.Store do
   @dir Path.expand("~/Library/Application Support/canaryd")
   @lockfile Path.join(@dir, "canaryd.lock")
 
+  alias Canaryd.Duration
+
   def dir, do: @dir
 
   @doc "Run `fun` with both tables open, guarded by an exclusive lockfile."
@@ -94,6 +96,7 @@ defmodule Canaryd.Store do
   def log_event(events_table, target, type, details \\ %{}) do
     now = DateTime.utc_now()
     key = {DateTime.to_unix(now, :microsecond), :erlang.unique_integer([:positive])}
+    details = mark_duration_unit(type, details)
 
     event =
       Map.merge(details, %{
@@ -108,9 +111,54 @@ defmodule Canaryd.Store do
 
   @doc "All events, newest first, optionally filtered by target."
   def list_events(events_table, target \\ nil, limit \\ 100) do
-    :dets.foldl(fn {_key, event}, events -> [event | events] end, [], events_table)
+    stored_entries = :dets.foldl(fn entry, events -> [entry | events] end, [], events_table)
+    entries = Enum.map(stored_entries, &normalize_entry/1)
+
+    stored_entries
+    |> Enum.zip(entries)
+    |> Enum.each(fn
+      {entry, entry} -> :ok
+      {_stored_entry, normalized_entry} -> :dets.insert(events_table, normalized_entry)
+    end)
+
+    entries
+    |> Enum.map(fn {_key, event} -> event end)
     |> Enum.filter(fn e -> is_nil(target) or e.target == target end)
     |> Enum.sort_by(& &1.at, {:desc, DateTime})
     |> Enum.take(limit)
   end
+
+  defp mark_duration_unit(:skipped_idle, %{idle_duration: _duration} = details) do
+    Map.put(details, :duration_unit, :millisecond)
+  end
+
+  defp mark_duration_unit(_type, details), do: details
+
+  defp normalize_entry({key, event}), do: {key, normalize_event(event)}
+
+  defp normalize_event(
+         %{
+           type: :skipped_idle,
+           idle_duration: _duration,
+           duration_unit: :millisecond
+         } = event
+       ),
+       do: event
+
+  defp normalize_event(%{type: :skipped_idle, idle_duration: duration} = event)
+       when is_integer(duration) do
+    event
+    |> Map.put(:idle_duration, Duration.seconds(duration))
+    |> Map.put(:duration_unit, :millisecond)
+  end
+
+  defp normalize_event(%{type: :skipped_idle, idle_seconds: duration} = event)
+       when is_integer(duration) do
+    event
+    |> Map.delete(:idle_seconds)
+    |> Map.put(:idle_duration, Duration.seconds(duration))
+    |> Map.put(:duration_unit, :millisecond)
+  end
+
+  defp normalize_event(event), do: event
 end

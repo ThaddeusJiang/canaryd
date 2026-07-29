@@ -4,7 +4,6 @@ defmodule Canaryd.Temperature do
   """
 
   @supported_version "macmon 0.8.0"
-  @sample_args ["pipe", "--samples", "3", "--interval", "250"]
   @known_paths ["/opt/homebrew/bin/macmon", "/usr/local/bin/macmon"]
 
   @doc "Returns average CPU and GPU sensor temperatures in degrees Celsius."
@@ -19,7 +18,7 @@ defmodule Canaryd.Temperature do
   def sample(runner, path) do
     with {:ok, version_output} <- runner.(path, ["--version"]),
          :ok <- validate_version(version_output),
-         {:ok, sample_output} <- runner.(path, @sample_args),
+         {:ok, sample_output} <- runner.(path, ["pipe", "--samples", "3", "--interval", "250"]),
          {:ok, temperatures} <- parse_sample(sample_output) do
       {:ok, temperatures}
     end

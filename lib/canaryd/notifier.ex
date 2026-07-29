@@ -1,17 +1,15 @@
 defmodule Canaryd.Notifier do
   @moduledoc "macOS notifications. Used only when user attention is required."
 
-  alias Canaryd.NotificationHelper
-
-  @action_timeout_sec 120
-  @warning_timeout_sec 30
+  alias Canaryd.{Duration, NotificationHelper}
 
   def notify(title, message) do
-    script =
-      ~s(display notification "#{escape(message)}" with title "#{escape(title)}" sound name "Glass")
+    notify(title, message, &run_notification_helper/2)
+  end
 
-    System.cmd("osascript", ["-e", script], stderr_to_stdout: true)
-    :ok
+  @doc false
+  def notify(title, message, runner) do
+    send_notification(title, message, runner)
   end
 
   @doc "Sends a temperature warning that stays in Notification Center until dismissal."
@@ -21,14 +19,7 @@ defmodule Canaryd.Notifier do
 
   @doc false
   def warn_temperature(message, runner) do
-    args = ["notify", "Mac temperature warning", message, Integer.to_string(@warning_timeout_sec)]
-
-    case runner.(NotificationHelper.executable_path(), args) do
-      {_output, 0} -> :ok
-      {output, _status} -> {:error, {:notification_failed, String.trim(output)}}
-    end
-  rescue
-    _ -> {:error, :notification_failed}
+    send_notification("Mac temperature warning", message, runner)
   end
 
   @doc "Sends a time-limited notification with Close and Restart actions."
@@ -69,10 +60,19 @@ defmodule Canaryd.Notifier do
     end
   end
 
-  defp escape(s), do: String.replace(s, "\"", "\\\"")
+  defp send_notification(title, message, runner) do
+    args = ["notify", title, message, Integer.to_string(Duration.seconds(30))]
+
+    case runner.(NotificationHelper.executable_path(), args) do
+      {_output, 0} -> :ok
+      {output, _status} -> {:error, {:notification_failed, String.trim(output)}}
+    end
+  rescue
+    _ -> {:error, :notification_failed}
+  end
 
   defp choose_action(title, message, runner) do
-    args = ["action", title, message, Integer.to_string(@action_timeout_sec)]
+    args = ["action", title, message, Integer.to_string(Duration.minutes(2))]
 
     case runner.(NotificationHelper.executable_path(), args) do
       {output, 0} -> parse_app_action(output)

@@ -10,22 +10,29 @@ defmodule Canaryd.Checker do
        notify only when blocked.
   """
 
-  alias Canaryd.{Notifier, StateMachine, Store, System, ThermalMonitor, UnresponsiveMonitor}
-  alias Canaryd.Apps.{CleanClip, Unresponsive}
+  alias Canaryd.{
+    Duration,
+    Notifier,
+    StateMachine,
+    Store,
+    System,
+    ThermalMonitor,
+    UnresponsiveMonitor
+  }
 
-  @idle_skip_sec 1_800
+  alias Canaryd.Apps.{CleanClip, Unresponsive}
 
   def run do
     Store.with_tables(fn state, events ->
-      idle = System.idle_seconds()
+      idle = System.idle_duration()
       sys = System.check()
       record_system(state, events, sys)
       thermal_monitor = check_thermal_processes(state, events, sys)
       sys = Map.put(sys, :thermal_monitor, thermal_monitor)
       app_monitor = check_unresponsive_apps(state, events)
 
-      if idle > @idle_skip_sec do
-        Store.log_event(events, :self, :skipped_idle, %{idle_seconds: idle})
+      if idle > Duration.minutes(30) do
+        Store.log_event(events, :self, :skipped_idle, %{idle_duration: idle})
         {:skipped_idle, idle, sys, app_monitor}
       else
         cleanclip = check_cleanclip(state, events)

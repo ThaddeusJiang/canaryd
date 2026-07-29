@@ -10,6 +10,27 @@ defmodule Canaryd.NotifierTest do
     assert Notifier.parse_app_action("unknown\n") == {:error, :invalid_action}
   end
 
+  test "sends an informational notification through the Canaryd helper" do
+    caller = self()
+
+    runner = fn bin, args ->
+      send(caller, {:command, bin, args})
+      {"scheduled\n", 0}
+    end
+
+    assert Notifier.notify("Mac Health", "CleanClip needs attention.", runner) == :ok
+
+    assert_receive {:command, helper, args}
+    assert helper == Canaryd.NotificationHelper.executable_path()
+
+    assert args == [
+             "notify",
+             "Mac Health",
+             "CleanClip needs attention.",
+             "30000"
+           ]
+  end
+
   test "sends a persistent temperature warning notification" do
     caller = self()
 
@@ -27,7 +48,7 @@ defmodule Canaryd.NotifierTest do
              "notify",
              "Mac temperature warning",
              "CPU 74.6°C; GPU 72.3°C",
-             "30"
+             "30000"
            ]
   end
 
@@ -55,7 +76,7 @@ defmodule Canaryd.NotifierTest do
              "action",
              "Mac Health",
              "CursorUIViewService is not responding. Close or Restart can force-stop this instance. macOS opens the service again when needed.",
-             "120"
+             "120000"
            ]
   end
 
@@ -65,7 +86,7 @@ defmodule Canaryd.NotifierTest do
                "action",
                "Mac temperature is high",
                "Code is the leading CPU-related heat suspect.\nCPU 75.0°C\nCPU usage is correlation evidence. Close or Restart can discard unsaved data.",
-               "120"
+               "120000"
              ]
 
       {"close\n", 0}

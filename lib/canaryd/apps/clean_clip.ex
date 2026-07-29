@@ -7,15 +7,13 @@ defmodule Canaryd.Apps.CleanClip do
   in CleanClip's history directory.
   """
 
-  alias Canaryd.Pasteboard
+  alias Canaryd.{Duration, Pasteboard}
 
   @app_name "CleanClip"
   @process_pattern "/Applications/CleanClip.app/Contents/MacOS/CleanClip"
   @history_dir Path.expand(
                  "~/Library/Application Support/com.antiless.cleanclip.mac/PrivateData/HistoryItemContents"
                )
-  @probe_wait_ms 4_000
-
   def process_alive? do
     case System.cmd("pgrep", ["-f", @process_pattern], stderr_to_stdout: true) do
       {out, 0} -> String.trim(out) != ""
@@ -25,13 +23,13 @@ defmodule Canaryd.Apps.CleanClip do
 
   def start do
     System.cmd("open", ["-a", @app_name], stderr_to_stdout: true)
-    Process.sleep(5_000)
+    Process.sleep(Duration.seconds(5))
     process_alive?()
   end
 
   def restart do
     System.cmd("pkill", ["-f", @process_pattern], stderr_to_stdout: true)
-    Process.sleep(2_000)
+    Process.sleep(Duration.seconds(2))
     start()
   end
 
@@ -43,7 +41,7 @@ defmodule Canaryd.Apps.CleanClip do
     before = latest_mtime()
     marker = "canaryd-probe-#{System.unique_integer([:positive])}"
 
-    case Pasteboard.probe(marker, @probe_wait_ms) do
+    case Pasteboard.probe(marker, Duration.seconds(4)) do
       :ok ->
         probe_result(before, latest_mtime())
 

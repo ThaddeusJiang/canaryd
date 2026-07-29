@@ -8,7 +8,7 @@ defmodule Canaryd.Pasteboard do
 
   function run(argv) {
     const marker = argv[0]
-    const waitSeconds = Number(argv[1]) / 1000
+    const waitDuration = Number(argv[1])
     const pasteboardName = argv[2]
     const pasteboard = pasteboardName === ""
       ? $.NSPasteboard.generalPasteboard
@@ -38,7 +38,7 @@ defmodule Canaryd.Pasteboard do
     }
 
     const markerChangeCount = Number(pasteboard.changeCount)
-    delay(waitSeconds)
+    delay(waitDuration / 1000)
 
     if (Number(pasteboard.changeCount) === markerChangeCount) {
       pasteboard.clearContents
@@ -52,8 +52,9 @@ defmodule Canaryd.Pasteboard do
 
   @doc """
   Writes a marker and restores the previous items when no newer write occurs.
+  The wait duration uses milliseconds.
   """
-  def probe(marker, wait_ms, options \\ []) do
+  def probe(marker, wait_duration, options \\ []) do
     runner = Keyword.get(options, :runner, &System.cmd/3)
     pasteboard_name = Keyword.get(options, :pasteboard_name, "")
 
@@ -63,7 +64,7 @@ defmodule Canaryd.Pasteboard do
       "-e",
       @probe_script,
       marker,
-      Integer.to_string(wait_ms),
+      Integer.to_string(wait_duration),
       pasteboard_name
     ]
 

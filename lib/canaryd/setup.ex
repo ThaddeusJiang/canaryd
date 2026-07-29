@@ -8,7 +8,7 @@ defmodule Canaryd.Setup do
   @label "com.thaddeusjiang.canaryd"
   @thermal_label "com.thaddeusjiang.canaryd.thermal"
 
-  alias Canaryd.NotificationHelper
+  alias Canaryd.{Duration, NotificationHelper}
 
   def label, do: @label
   def thermal_label, do: @thermal_label
@@ -16,11 +16,16 @@ defmodule Canaryd.Setup do
   @doc false
   def agent_specs(escript_path) do
     [
-      %{label: @label, command: "check", interval_sec: 300, escript_path: escript_path},
+      %{
+        label: @label,
+        command: "check",
+        interval: Duration.minutes(5),
+        escript_path: escript_path
+      },
       %{
         label: @thermal_label,
         command: "thermal-check",
-        interval_sec: 60,
+        interval: Duration.minutes(1),
         escript_path: escript_path
       }
     ]
@@ -57,7 +62,7 @@ defmodule Canaryd.Setup do
     File.mkdir_p!(log_dir())
 
     Enum.each(agents, fn agent ->
-      File.write!(plist_path(agent.label), plist(agent))
+      File.write!(plist_path(agent.label), agent_plist(agent))
     end)
 
     bootstrap(agents)
@@ -124,7 +129,8 @@ defmodule Canaryd.Setup do
     Path.join([:code.root_dir(), "bin"])
   end
 
-  defp plist(agent) do
+  @doc false
+  def agent_plist(agent) do
     """
     <?xml version="1.0" encoding="UTF-8"?>
     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -138,7 +144,7 @@ defmodule Canaryd.Setup do
         <string>#{agent.command}</string>
       </array>
       <key>StartInterval</key>
-      <integer>#{agent.interval_sec}</integer>
+      <integer>#{Duration.to_external(agent.interval, :second)}</integer>
       <key>RunAtLoad</key>
       <true/>
       <key>StandardOutPath</key>

@@ -1,7 +1,7 @@
 defmodule Canaryd.StoreTest do
   use ExUnit.Case, async: false
 
-  alias Canaryd.Store
+  alias Canaryd.{Duration, Store}
 
   setup do
     path = Path.join(System.tmp_dir!(), "canaryd-store-test.dets")
@@ -27,5 +27,49 @@ defmodule Canaryd.StoreTest do
 
     assert events |> Enum.map(& &1.type) |> MapSet.new() ==
              MapSet.new([:notification_test, :heat_alerted])
+  end
+
+  test "migrates legacy idle event durations to milliseconds", %{table: table} do
+    at = ~U[2026-07-29 00:00:00Z]
+
+    :dets.insert(table, {
+      :legacy_key,
+      %{target: :self, type: :skipped_idle, at: at, idle_seconds: 1_801}
+    })
+
+    assert [%{duration_unit: :millisecond} = event] = Store.list_events(table, :self)
+    assert event.idle_duration == Duration.seconds(1_801)
+
+    refute Map.has_key?(event, :idle_seconds)
+
+    assert [{:legacy_key, ^event}] = :dets.lookup(table, :legacy_key)
+  end
+
+  test "migrates unversioned idle duration values from the current branch", %{table: table} do
+    at = ~U[2026-07-29 00:00:00Z]
+
+    :dets.insert(table, {
+      :unversioned_key,
+      %{target: :self, type: :skipped_idle, at: at, idle_duration: 1_801}
+    })
+
+    assert [%{idle_duration: 1_801_000, duration_unit: :millisecond}] =
+             Store.list_events(table, :self)
+  end
+
+  test "keeps versioned millisecond idle durations unchanged", %{table: table} do
+    at = ~U[2026-07-29 00:00:00Z]
+
+    event = %{
+      target: :self,
+      type: :skipped_idle,
+      at: at,
+      idle_duration: 1_801_000,
+      duration_unit: :millisecond
+    }
+
+    :dets.insert(table, {:current_key, event})
+
+    assert [^event] = Store.list_events(table, :self)
   end
 end

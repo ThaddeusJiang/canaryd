@@ -7,10 +7,9 @@ defmodule Canaryd.Apps.Unresponsive do
   unavailable and does not trigger any process action.
   """
 
-  @term_grace_attempts 10
-  @term_grace_ms 200
-  @kill_grace_attempts 10
-  @replacement_attempts 25
+  alias Canaryd.Duration
+
+  @termination_grace Duration.milliseconds(200)
   @cursor_ui_service "com.apple.TextInputUI.xpc.CursorUIViewService"
   @cursor_ui_path "/System/Library/PrivateFrameworks/TextInputUIMacHelper.framework/Versions/A/XPCServices/CursorUIViewService.xpc"
 
@@ -100,7 +99,7 @@ defmodule Canaryd.Apps.Unresponsive do
       })
       when is_integer(pid) and pid > 0 do
     with :ok <- stop_process(pid),
-         {:ok, _new_pid} <- wait_for_replacement(name, pid, @replacement_attempts) do
+         {:ok, _new_pid} <- wait_for_replacement(name, pid, 25) do
       :ok
     end
   end
@@ -236,7 +235,7 @@ defmodule Canaryd.Apps.Unresponsive do
   defp stop_process(pid) do
     case System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true) do
       {_output, 0} ->
-        wait_for_stop(pid, @term_grace_attempts)
+        wait_for_stop(pid, 10)
 
       {output, status} ->
         if process_alive?(pid) do
@@ -250,7 +249,7 @@ defmodule Canaryd.Apps.Unresponsive do
   defp wait_for_stop(pid, 0) do
     case System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true) do
       {_output, 0} ->
-        wait_after_kill(pid, @kill_grace_attempts)
+        wait_after_kill(pid, 10)
 
       {output, status} ->
         if process_alive?(pid) do
@@ -263,7 +262,7 @@ defmodule Canaryd.Apps.Unresponsive do
 
   defp wait_for_stop(pid, attempts) do
     if process_alive?(pid) do
-      Process.sleep(@term_grace_ms)
+      Process.sleep(@termination_grace)
       wait_for_stop(pid, attempts - 1)
     else
       :ok
@@ -281,7 +280,7 @@ defmodule Canaryd.Apps.Unresponsive do
 
   defp wait_after_kill(pid, attempts) do
     if process_alive?(pid) do
-      Process.sleep(@term_grace_ms)
+      Process.sleep(@termination_grace)
       wait_after_kill(pid, attempts - 1)
     else
       :ok
@@ -295,7 +294,7 @@ defmodule Canaryd.Apps.Unresponsive do
       {output, _status} ->
         case replacement_pid(output, old_pid) do
           nil ->
-            Process.sleep(@term_grace_ms)
+            Process.sleep(@termination_grace)
             wait_for_replacement(name, old_pid, attempts - 1)
 
           new_pid ->

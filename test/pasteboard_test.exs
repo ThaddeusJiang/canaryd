@@ -1,7 +1,7 @@
 defmodule Canaryd.PasteboardTest do
   use ExUnit.Case, async: false
 
-  alias Canaryd.Pasteboard
+  alias Canaryd.{Duration, Pasteboard}
 
   @write_script """
   ObjC.import("AppKit")
@@ -38,7 +38,10 @@ defmodule Canaryd.PasteboardTest do
     pasteboard_name = unique_pasteboard_name()
     write_item(pasteboard_name, "original text", "original custom data")
 
-    assert Pasteboard.probe("probe marker", 10, pasteboard_name: pasteboard_name) == :ok
+    assert Pasteboard.probe("probe marker", Duration.milliseconds(10),
+             pasteboard_name: pasteboard_name
+           ) == :ok
+
     assert read_item(pasteboard_name) == "original text\noriginal custom data"
   end
 
@@ -49,7 +52,7 @@ defmodule Canaryd.PasteboardTest do
 
     probe =
       Task.async(fn ->
-        Pasteboard.probe(marker, 500, pasteboard_name: pasteboard_name)
+        Pasteboard.probe(marker, Duration.milliseconds(500), pasteboard_name: pasteboard_name)
       end)
 
     assert eventually(fn -> read_item(pasteboard_name) == marker end)
@@ -62,7 +65,7 @@ defmodule Canaryd.PasteboardTest do
   test "returns a failure when the pasteboard command fails" do
     runner = fn _command, _args, _options -> {"command failed", 1} end
 
-    assert Pasteboard.probe("probe marker", 10, runner: runner) ==
+    assert Pasteboard.probe("probe marker", Duration.milliseconds(10), runner: runner) ==
              {:error, :pasteboard_transaction_failed}
   end
 
@@ -97,7 +100,7 @@ defmodule Canaryd.PasteboardTest do
     if fun.() do
       true
     else
-      Process.sleep(10)
+      Process.sleep(Duration.milliseconds(10))
       eventually(fun, attempts - 1)
     end
   end

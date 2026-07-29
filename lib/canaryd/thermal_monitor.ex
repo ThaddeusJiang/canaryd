@@ -5,10 +5,7 @@ defmodule Canaryd.ThermalMonitor do
   Process CPU usage is correlation evidence. It is not exact power attribution.
   """
 
-  @confirmation_count 2
-  @alert_cooldown_sec 900
-  @prompt_cooldown_sec 3_600
-  @retention_sec 86_400
+  alias Canaryd.Duration
 
   def default_state do
     %{observations: %{}, alerts: %{}, prompts: %{}}
@@ -41,7 +38,7 @@ defmodule Canaryd.ThermalMonitor do
       previous_count = get_in(state, [:observations, process.id, :count]) || 0
       count = previous_count + 1
 
-      if count < @confirmation_count do
+      if count < 2 do
         observation = %{process: process, count: count}
         next_state = %{state | observations: %{process.id => observation}}
 
@@ -80,14 +77,14 @@ defmodule Canaryd.ThermalMonitor do
   defp alert_allowed?(state, id, now) do
     case Map.get(state.alerts, id) do
       nil -> true
-      alerted_at -> DateTime.diff(now, alerted_at, :second) >= @alert_cooldown_sec
+      alerted_at -> Duration.between(now, alerted_at) >= Duration.minutes(15)
     end
   end
 
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
-      prompted_at -> DateTime.diff(now, prompted_at, :second) >= @prompt_cooldown_sec
+      prompted_at -> Duration.between(now, prompted_at) >= Duration.hours(1)
     end
   end
 
@@ -104,7 +101,7 @@ defmodule Canaryd.ThermalMonitor do
 
   defp recent_entries(entries, now) do
     Map.filter(entries, fn {_id, recorded_at} ->
-      DateTime.diff(now, recorded_at, :second) < @retention_sec
+      Duration.between(now, recorded_at) < Duration.days(1)
     end)
   end
 end

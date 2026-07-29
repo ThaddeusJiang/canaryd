@@ -3,11 +3,9 @@ defmodule Canaryd.UnresponsiveMonitor do
   Pure confirmation and cooldown policy for unresponsive GUI apps.
   """
 
-  @confirmation_count 2
-  @restart_cooldown_sec 3_600
-  @restart_retention_sec 86_400
-  @prompt_cooldown_sec 3_600
-  @prompt_retention_sec 86_400
+  alias Canaryd.Duration
+
+  @restart_cooldown Duration.hours(1)
 
   def default_state do
     %{
@@ -61,14 +59,15 @@ defmodule Canaryd.UnresponsiveMonitor do
     }
   end
 
-  def restart_cooldown_sec, do: @restart_cooldown_sec
+  @doc "Restart cooldown in milliseconds."
+  def restart_cooldown, do: @restart_cooldown
 
   defp observe(state, app, now) do
     previous_count = get_in(state, [:observations, app.id, :count]) || 0
     count = previous_count + 1
 
     cond do
-      count < @confirmation_count ->
+      count < 2 ->
         observation = %{app: app, count: count}
 
         {%{state | observations: Map.put(state.observations, app.id, observation)},
@@ -117,14 +116,14 @@ defmodule Canaryd.UnresponsiveMonitor do
   defp restart_allowed?(state, id, now) do
     case Map.get(state.restarts, id) do
       nil -> true
-      last_restart -> DateTime.diff(now, last_restart, :second) >= @restart_cooldown_sec
+      last_restart -> Duration.between(now, last_restart) >= @restart_cooldown
     end
   end
 
   defp prompt_allowed?(state, id, now) do
     case Map.get(state.prompts, id) do
       nil -> true
-      last_prompt -> DateTime.diff(now, last_prompt, :second) >= @prompt_cooldown_sec
+      last_prompt -> Duration.between(now, last_prompt) >= Duration.hours(1)
     end
   end
 
@@ -135,12 +134,12 @@ defmodule Canaryd.UnresponsiveMonitor do
 
     recent_restarts =
       Map.filter(restarts, fn {_id, restarted_at} ->
-        DateTime.diff(now, restarted_at, :second) < @restart_retention_sec
+        Duration.between(now, restarted_at) < Duration.days(1)
       end)
 
     recent_prompts =
       Map.filter(prompts, fn {_id, prompted_at} ->
-        DateTime.diff(now, prompted_at, :second) < @prompt_retention_sec
+        Duration.between(now, prompted_at) < Duration.days(1)
       end)
 
     %{
