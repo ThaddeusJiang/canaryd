@@ -8,7 +8,7 @@ defmodule Canaryd.Setup do
   @label "com.thaddeusjiang.canaryd"
   @thermal_label "com.thaddeusjiang.canaryd.thermal"
 
-  alias Canaryd.{Duration, NotificationHelper}
+  alias Canaryd.{Duration, NotificationHelper, Paths}
 
   def label, do: @label
   def thermal_label, do: @thermal_label
@@ -109,7 +109,7 @@ defmodule Canaryd.Setup do
   end
 
   defp plist_path(label) do
-    Path.expand("~/Library/LaunchAgents/#{label}.plist")
+    Path.join(Paths.launch_agents_dir(), "#{label}.plist")
   end
 
   defp log_dir, do: Canaryd.Store.dir()

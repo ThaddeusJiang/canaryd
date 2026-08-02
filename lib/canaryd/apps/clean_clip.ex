@@ -7,19 +7,19 @@ defmodule Canaryd.Apps.CleanClip do
   in CleanClip's history directory.
   """
 
-  alias Canaryd.{Duration, Pasteboard}
+  alias Canaryd.{Duration, Pasteboard, Paths}
 
   @app_name "CleanClip"
   @process_pattern "/Applications/CleanClip.app/Contents/MacOS/CleanClip"
-  @history_dir Path.expand(
-                 "~/Library/Application Support/com.antiless.cleanclip.mac/PrivateData/HistoryItemContents"
-               )
   def process_alive? do
     case System.cmd("pgrep", ["-f", @process_pattern], stderr_to_stdout: true) do
       {out, 0} -> String.trim(out) != ""
       _ -> false
     end
   end
+
+  @doc false
+  def history_dir, do: Paths.clean_clip_history_dir()
 
   def start do
     System.cmd("open", ["-a", @app_name], stderr_to_stdout: true)
@@ -62,7 +62,7 @@ defmodule Canaryd.Apps.CleanClip do
   # The directory's own mtime bumps whenever CleanClip adds a history item.
   # (47k+ files inside; stat-ing each file would be slow and sampling is flaky.)
   defp latest_mtime do
-    case File.stat(@history_dir, time: :posix) do
+    case File.stat(history_dir(), time: :posix) do
       {:ok, %{mtime: mtime}} -> DateTime.from_unix!(mtime)
       _ -> nil
     end
