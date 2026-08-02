@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./priv/canaryd-logo.png" width="152" alt="Canaryd logo">
+  <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/priv/canaryd-logo.png" width="152" alt="Canaryd logo">
 </p>
 
 <h1 align="center">canaryd</h1>
@@ -45,7 +45,7 @@ problems that a simple process check can miss.
 Run `canaryd status` to see health, recent recovery events, pending app hangs,
 and thermal pressure.
 
-![Example Canaryd status output](./docs/images/canaryd-status.svg)
+![Example Canaryd status output](https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/docs/images/canaryd-status.svg)
 
 > The screenshot contains example values. Process names, temperatures, and
 > events come from your Mac.
