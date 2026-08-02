@@ -28,6 +28,7 @@ Do not require the user to install Erlang or Elixir.
 - Build `aarch64-apple-darwin` and `x86_64-apple-darwin` assets.
 - Put one executable in each compressed release archive.
 - Publish one SHA-256 checksum file for all archives.
+- Publish `rc.N` tags as GitHub prereleases.
 - Keep the existing escript build for Hex users.
 
 ## Behavior
@@ -46,6 +47,8 @@ Do not require the user to install Erlang or Elixir.
 12. Verify the selected archive before installing its executable.
 13. Install the executable as `~/.local/bin/canaryd` by default.
 14. Add the install directory to the current shell profile when necessary.
+15. Accept stable tags and `rc.N` tags that match the Mix project version.
+16. Mark each `rc.N` GitHub Release as a prerelease.
 
 ## BDD Scenarios
 
@@ -103,6 +106,22 @@ Test Plan:
 - First failing test: install a verified local archive into an isolated directory.
 - Follow-up test: reject an archive with an invalid checksum.
 
+### BDD-04 Publish a release candidate
+
+Given:
+- An `rc.N` tag matches the Mix project version.
+
+When:
+- The release workflow publishes the tag.
+
+Then:
+- GitHub marks the release as a prerelease.
+- GitHub does not replace the latest stable release.
+
+Test Plan:
+- Lowest useful level: workflow contract test.
+- Follow-up test: inspect the published GitHub Release.
+
 ## Security and Operations
 
 - Every GitHub Action reference uses a full commit SHA.
@@ -119,3 +138,4 @@ Test Plan:
 | BDD-01 | passed | `Canaryd.CLITest`; signed ARM64 archive smoke test; x86_64 Rosetta smoke test; isolated `PATH` | Gatekeeper is not part of the local smoke test. |
 | BDD-02 | passed | `Canaryd.SetupTest` | Both installation formats stay supported. |
 | BDD-03 | passed | `Canaryd.InstallScriptTest` | The test uses local release fixtures. |
+| BDD-04 | passed | `Canaryd.ReleaseConfigTest` | The release workflow adds the GitHub prerelease flag for `rc.N` tags. |

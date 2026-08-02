@@ -12,4 +12,12 @@ defmodule Canaryd.ReleaseConfigTest do
              macos_x86_64: [os: :darwin, cpu: :x86_64]
            ]
   end
+
+  test "publishes rc tags as GitHub prereleases" do
+    workflow = File.read!(".github/workflows/release.yml")
+
+    assert workflow =~ "(-rc\\.[1-9][0-9]*)?"
+    assert workflow =~ "release_flags+=(--prerelease)"
+    assert workflow =~ ~S("${release_flags[@]}")
+  end
 end

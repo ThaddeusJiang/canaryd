@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag, for example v0.2.0
+        description: Existing release tag, for example v0.3.0-rc.1
         required: true
         type: string
       confirm_config_changes:
@@ -49,7 +49,7 @@ jobs:
       - name: Validate ${{ inputs.tag }}
         shell: bash
         run: |
-          printf '%s\n' "$TAG" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'
+          printf '%s\n' "$TAG" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$'
 
           tag_commit="$(git rev-parse "refs/tags/${TAG}^{commit}")"
           head_commit="$(git rev-parse HEAD)"
@@ -148,6 +148,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          release_flags=()
+
+          if printf '%s\n' "$TAG" | grep -Eq -- '-rc\.[1-9][0-9]*$'; then
+            release_flags+=(--prerelease)
+          fi
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" \
               dist/canaryd-aarch64-apple-darwin.tar.gz \
@@ -161,6 +167,7 @@ jobs:
               dist/canaryd-x86_64-apple-darwin.tar.gz \
               dist/checksums-sha256.txt \
               scripts/install.sh \
+              "${release_flags[@]}" \
               --verify-tag \
               --generate-notes \
               --notes "The macOS executables are ad hoc signed. They are not notarized. Verify checksums before installation."
