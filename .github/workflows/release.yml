@@ -1,0 +1,167 @@
+name: Release
+run-name: Release ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.2.0
+        required: true
+        type: string
+      confirm_config_changes:
+        description: Confirm reviewed release configuration changes
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release ${{ inputs.tag }}
+    runs-on: macos-15
+    env:
+      TAG: ${{ inputs.tag }}
+      MIX_ENV: prod
+    steps:
+      - name: Check out ${{ inputs.tag }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Set up BEAM for ${{ inputs.tag }}
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: 1.19.5
+          otp-version: 28.1.1
+
+      - name: Set up Zig for ${{ inputs.tag }}
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Validate ${{ inputs.tag }}
+        shell: bash
+        run: |
+          printf '%s\n' "$TAG" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          tag_commit="$(git rev-parse "refs/tags/${TAG}^{commit}")"
+          head_commit="$(git rev-parse HEAD)"
+          test "$tag_commit" = "$head_commit"
+
+          project_version="$(sed -nE 's/^[[:space:]]*version: "([^"]+)",/\1/p' mix.exs)"
+          test -n "$project_version"
+          test "$TAG" = "v${project_version}"
+
+      - name: Check release configuration for ${{ inputs.tag }}
+        shell: bash
+        env:
+          CONFIG_CHANGES_CONFIRMED: ${{ inputs.confirm_config_changes }}
+        run: |
+          base_tag="$(git tag --merged HEAD --sort=-version:refname | grep -Fvx "$TAG" | head -n 1 || true)"
+
+          if [ -n "$base_tag" ]; then
+            base_ref="$base_tag"
+          else
+            base_ref="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          changed_files="$(git diff --name-only "${base_ref}..HEAD")"
+          config_files="$(printf '%s\n' "$changed_files" | grep -E '(^|/)(\.env([^/]*)?|config|rel|deploy|deployment|ops|infra|k8s|kubernetes|helm|charts)(/|$)|(^|/)(Dockerfile|Containerfile|docker-compose[^/]*\.ya?ml|compose[^/]*\.ya?ml|Caddyfile|fly\.toml|render\.yaml|railway\.json|vercel\.json|netlify\.toml|mise\.toml|\.tool-versions|mix\.exs|mix\.lock)$|^\.github/workflows/' || true)"
+
+          config_diff="$(git diff --unified=0 "${base_ref}..HEAD" -- '.env*' config rel deploy deployment ops infra k8s kubernetes helm charts .github/workflows mix.exs mix.lock || true)"
+          added_env="$(printf '%s\n' "$config_diff" | awk '/^\+[^+]/{print}' | grep -Eo '[A-Z][A-Z0-9_]{2,}' | sort -u || true)"
+          removed_env="$(printf '%s\n' "$config_diff" | awk '/^-[^-]/{print}' | grep -Eo '[A-Z][A-Z0-9_]{2,}' | sort -u || true)"
+
+          {
+            echo "## Release configuration gate"
+            echo ""
+            echo "- Base: ${base_ref}"
+            echo "- Target: ${TAG}"
+            echo "- Config files: ${config_files:-none}"
+            echo "- Added env keys: ${added_env:-none}"
+            echo "- Removed env keys: ${removed_env:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if { [ -n "$config_files" ] || [ -n "$added_env" ] || [ -n "$removed_env" ]; } &&
+            [ "$CONFIG_CHANGES_CONFIRMED" != "true" ]; then
+            echo "Release configuration changes need explicit confirmation."
+            exit 1
+          fi
+
+      - name: Test ${{ inputs.tag }}
+        shell: bash
+        env:
+          MIX_ENV: test
+        run: |
+          mix deps.get
+          mix test
+
+      - name: Build ${{ inputs.tag }} executables
+        shell: bash
+        run: |
+          mix deps.get
+          mix release --overwrite
+
+      - name: Verify ${{ inputs.tag }} executables
+        shell: bash
+        run: |
+          arm64_binary="burrito_out/canaryd_macos_arm64"
+          x86_64_binary="burrito_out/canaryd_macos_x86_64"
+
+          file "$arm64_binary" | grep -F "Mach-O 64-bit executable arm64"
+          file "$x86_64_binary" | grep -F "Mach-O 64-bit executable x86_64"
+
+          chmod 755 "$arm64_binary" "$x86_64_binary"
+          codesign --force --sign - "$arm64_binary"
+          codesign --force --sign - "$x86_64_binary"
+          codesign --verify --strict "$arm64_binary"
+          codesign --verify --strict "$x86_64_binary"
+
+          env -i HOME="$HOME" PATH=/usr/bin:/bin "$arm64_binary" --version |
+            grep -Fx "canaryd ${TAG#v}"
+
+      - name: Package ${{ inputs.tag }} executables
+        shell: bash
+        run: |
+          mkdir -p dist/arm64 dist/x86_64
+          cp burrito_out/canaryd_macos_arm64 dist/arm64/canaryd
+          cp burrito_out/canaryd_macos_x86_64 dist/x86_64/canaryd
+
+          COPYFILE_DISABLE=1 tar -C dist/arm64 -czf dist/canaryd-aarch64-apple-darwin.tar.gz canaryd
+          COPYFILE_DISABLE=1 tar -C dist/x86_64 -czf dist/canaryd-x86_64-apple-darwin.tar.gz canaryd
+
+          test "$(tar -tzf dist/canaryd-aarch64-apple-darwin.tar.gz)" = "canaryd"
+          test "$(tar -tzf dist/canaryd-x86_64-apple-darwin.tar.gz)" = "canaryd"
+
+          cd dist
+          shasum -a 256 canaryd-*.tar.gz > checksums-sha256.txt
+
+      - name: Publish ${{ inputs.tag }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              dist/canaryd-aarch64-apple-darwin.tar.gz \
+              dist/canaryd-x86_64-apple-darwin.tar.gz \
+              dist/checksums-sha256.txt \
+              scripts/install.sh \
+              --clobber
+          else
+            gh release create "$TAG" \
+              dist/canaryd-aarch64-apple-darwin.tar.gz \
+              dist/canaryd-x86_64-apple-darwin.tar.gz \
+              dist/checksums-sha256.txt \
+              scripts/install.sh \
+              --verify-tag \
+              --generate-notes \
+              --notes "The macOS executables are ad hoc signed. They are not notarized. Verify checksums before installation."
+          fi

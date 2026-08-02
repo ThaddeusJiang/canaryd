@@ -63,21 +63,82 @@ Read https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/SKILL.md and f
 ### Requirements
 
 - macOS on Apple Silicon or Intel
-- Erlang/OTP and Elixir 1.15 or later
 - Xcode Command Line Tools for the built-in notification helper
 - `macmon 0.8.0` for exact CPU and GPU temperatures on Apple Silicon
+
+The GitHub Release executable includes Erlang and Elixir. A source or Hex
+installation needs Elixir 1.15 or later.
 
 Install the system tools:
 
 ```sh
 xcode-select -p >/dev/null || xcode-select --install
-brew install elixir macmon
-brew pin macmon
-macmon --version
+
+if [ "$(uname -m)" = "arm64" ]; then
+  brew install macmon
+  brew pin macmon
+  macmon --version
+fi
 ```
 
-The last command must print `macmon 0.8.0`. Canaryd rejects another version
-until its JSON schema is verified.
+On Apple Silicon, the last command must print `macmon 0.8.0`. Canaryd rejects
+another version until its JSON schema is verified. Intel Macs do not provide
+exact CPU and GPU sensor temperatures.
+
+### Install from GitHub Releases
+
+Install the latest stable release:
+
+```sh
+curl -fsSL https://github.com/ThaddeusJiang/canaryd/releases/latest/download/install.sh | bash
+```
+
+The installer selects the Mac architecture, verifies SHA-256, and installs
+`canaryd` in `~/.local/bin`. It adds that directory to the current shell
+profile when necessary. Restart the shell or run the `source` command that the
+installer prints. You can then use `canaryd` from any directory.
+
+### Install a downloaded archive
+
+Open the [latest GitHub Release](https://github.com/ThaddeusJiang/canaryd/releases/latest).
+Download `checksums-sha256.txt` and the archive for the Mac:
+
+| Mac | Archive |
+| --- | --- |
+| Apple Silicon | `canaryd-aarch64-apple-darwin.tar.gz` |
+| Intel | `canaryd-x86_64-apple-darwin.tar.gz` |
+
+Verify and install the downloaded archive:
+
+```sh
+cd "$HOME/Downloads"
+
+if [ "$(uname -m)" = "arm64" ]; then
+  archive="canaryd-aarch64-apple-darwin.tar.gz"
+else
+  archive="canaryd-x86_64-apple-darwin.tar.gz"
+fi
+
+grep " $archive\$" checksums-sha256.txt | shasum -a 256 -c -
+tar -xzf "$archive"
+mkdir -p "$HOME/.local/bin"
+
+# Run this only after the checksum succeeds. The first releases are not notarized.
+xattr -d com.apple.quarantine canaryd 2>/dev/null || true
+install -m 755 canaryd "$HOME/.local/bin/canaryd"
+```
+
+Add the install directory to `PATH` if the shell cannot find `canaryd`:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that line to the shell profile to keep the setting.
+
+The first GitHub releases use ad hoc code signing. They do not use Apple
+notarization. The checksum verifies that the download matches the release
+asset. It does not provide an Apple developer identity.
 
 ### Install the current source
 
@@ -93,7 +154,7 @@ mix escript.install --force ./canaryd
 
 ### Install the published release
 
-Install the fixed Hex release:
+The Hex package remains available for systems that already have Elixir:
 
 ```sh
 mix escript.install hex canaryd 0.1.0
@@ -133,6 +194,7 @@ again. You do not need to manage plist files.
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, or `apps` |
 | `canaryd install` | Reinstall and load both launchd agents |
 | `canaryd uninstall` | Remove both launchd agents and the notification helper |
+| `canaryd --version` | Show the installed version without changing launchd agents |
 
 Examples:
 
@@ -255,6 +317,14 @@ cd canaryd
 mix deps.get
 mix test
 mix escript.build
+```
+
+Build the native single executable with Zig 0.16.0:
+
+```sh
+mise install zig@0.16.0
+BURRITO_TARGET=macos_arm64 MIX_ENV=prod mise exec zig@0.16.0 -- mix release --overwrite
+./burrito_out/canaryd_macos_arm64 --version
 ```
 
 The project uses pure Elixir/OTP, DETS storage, launchd, and a small Swift

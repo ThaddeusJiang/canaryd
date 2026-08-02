@@ -3,6 +3,16 @@ defmodule Canaryd.SetupTest do
 
   alias Canaryd.Setup
 
+  test "uses the Burrito wrapper path for launchd" do
+    assert Setup.executable_path("/Users/test/bin/canaryd", ~c"") ==
+             "/Users/test/bin/canaryd"
+  end
+
+  test "keeps the escript path when no Burrito wrapper exists" do
+    assert Setup.executable_path(nil, ~c"/Users/test/.mix/escripts/canaryd") ==
+             "/Users/test/.mix/escripts/canaryd"
+  end
+
   test "keeps full checks at five minutes and thermal checks at one minute" do
     assert [
              %{label: "com.thaddeusjiang.canaryd", command: "check", interval: 300_000},

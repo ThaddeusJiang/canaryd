@@ -1,6 +1,6 @@
 ---
 name: canaryd
-description: Install or update Canaryd from its official Hex package on macOS, configure its required tools, register its launchd agents, and verify the result. Use when a user asks to install, update, set up, or repair Canaryd.
+description: Install or update Canaryd from its official GitHub Release on macOS, configure its required tools, register its launchd agents, and verify the result. Use when a user asks to install, update, set up, or repair Canaryd.
 ---
 
 # Install or update Canaryd
@@ -11,7 +11,7 @@ possible.
 ## Safety rules
 
 - Stop if the operating system is not macOS.
-- Install only the latest stable `canaryd` package from Hex.
+- Install only the latest stable Canaryd GitHub Release.
 - Do not fall back to a GitHub branch, tag, or commit.
 - Do not use `sudo`.
 - Do not run `canaryd uninstall`.
@@ -29,9 +29,7 @@ uname -m
 xcode-select -p
 command -v brew
 command -v canaryd || true
-test -x "$HOME/.mix/escripts/canaryd" && echo "Canaryd escript is installed"
-elixir --version
-mix --version
+test -x "$HOME/.local/bin/canaryd" && echo "Canaryd executable is installed"
 ```
 
 If Homebrew is not available, stop and ask the user to install it from
@@ -46,13 +44,7 @@ xcode-select --install
 Ask the user to finish the macOS installer. Continue only after
 `xcode-select -p` succeeds.
 
-If Elixir is not available, install the latest stable Homebrew formula:
-
-```sh
-brew install elixir
-```
-
-Require Elixir 1.15 or later.
+The GitHub Release executable includes Erlang and Elixir. Do not install them.
 
 ## Configure Apple Silicon temperature support
 
@@ -75,44 +67,24 @@ brew pin macmon
 On Intel, skip `macmon`. Report that exact CPU and GPU sensor temperatures are
 not available.
 
-## Install the official Hex release
+## Install the official GitHub Release
 
-Ensure Hex is available:
-
-```sh
-mix hex.info >/dev/null 2>&1 || mix local.hex --force
-```
-
-Resolve the latest stable version from the official Hex API. Install that exact
-version:
+Run the official installer:
 
 ```sh
-canaryd_version="$(
-  curl --fail --silent --show-error https://hex.pm/api/packages/canaryd |
-    sed -n 's/.*"latest_stable_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
-)"
-test -n "$canaryd_version"
-mix hex.info canaryd "$canaryd_version"
-mix escript.install --force hex canaryd "$canaryd_version"
+curl -fsSL \
+  https://github.com/ThaddeusJiang/canaryd/releases/latest/download/install.sh |
+  bash
 ```
 
-Stop if the API does not return a stable version. Do not install a prerelease.
+The installer selects the architecture, verifies the release SHA-256 checksum,
+and installs `~/.local/bin/canaryd`. Use the same command for upgrades.
 
-Use the same procedure for upgrades. Resolve the latest stable version again,
-overwrite the existing escript, and continue with launchd registration and
-verification.
-
-Use the installed executable at:
-
-```text
-~/.mix/escripts/canaryd
-```
-
-If `~/.mix/escripts` is not in `PATH`, add this line once to the profile for
-the user's current interactive shell:
+If `~/.local/bin` is not in `PATH`, add this line once to the profile for the
+user's current interactive shell:
 
 ```sh
-export PATH="$HOME/.mix/escripts:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Do not change another shell profile.
@@ -122,8 +94,9 @@ Do not change another shell profile.
 Rewrite and load both launchd agents with the installed executable:
 
 ```sh
-"$HOME/.mix/escripts/canaryd" install
-"$HOME/.mix/escripts/canaryd" status
+"$HOME/.local/bin/canaryd" --version
+"$HOME/.local/bin/canaryd" install
+"$HOME/.local/bin/canaryd" status
 launchctl print "gui/$(id -u)/com.thaddeusjiang.canaryd"
 launchctl print "gui/$(id -u)/com.thaddeusjiang.canaryd.thermal"
 ```
@@ -135,7 +108,7 @@ Report:
 
 - Whether this was an install or update.
 - The installed Canaryd version.
-- The installed Elixir and `macmon` versions.
+- The Mac architecture and installed `macmon` version, when applicable.
 - The result of `canaryd status`.
 - Whether both launchd agents are loaded.
 - Any user action that is still required.

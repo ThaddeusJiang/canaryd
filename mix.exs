@@ -8,6 +8,7 @@ defmodule Canaryd.MixProject do
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Canaryd.CLI, name: "canaryd"],
+      releases: releases(),
       description: description(),
       package: package(),
       deps: deps(),
@@ -17,12 +18,32 @@ defmodule Canaryd.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger]]
+    [extra_applications: [:logger]] ++ application_module()
   end
 
   defp deps do
-    [{:ex_doc, "~> 0.34", only: :dev, runtime: false, optional: true}]
+    [
+      {:burrito, "1.6.0", only: :prod, runtime: false},
+      {:ex_doc, "0.40.3", only: :dev, runtime: false, optional: true}
+    ]
   end
+
+  defp releases do
+    [
+      canaryd: [
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            macos_arm64: [os: :darwin, cpu: :aarch64],
+            macos_x86_64: [os: :darwin, cpu: :x86_64]
+          ]
+        ]
+      ]
+    ]
+  end
+
+  defp application_module,
+    do: if(Mix.env() == :prod, do: [mod: {Canaryd.Application, []}], else: [])
 
   defp description do
     """

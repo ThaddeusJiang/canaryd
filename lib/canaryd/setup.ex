@@ -114,11 +114,21 @@ defmodule Canaryd.Setup do
 
   defp log_dir, do: Canaryd.Store.dir()
 
-  defp configured_agents, do: agent_specs(escript_path())
+  defp configured_agents, do: agent_specs(executable_path())
 
-  # Absolute path of the currently running escript, e.g. ~/.mix/escripts/canaryd
-  defp escript_path do
-    case :escript.script_name() do
+  @doc false
+  def executable_path(
+        burrito_path \\ System.get_env("__BURRITO_BIN_PATH"),
+        escript_name \\ :escript.script_name()
+      )
+
+  def executable_path(burrito_path, _escript_name)
+      when is_binary(burrito_path) and burrito_path != "" do
+    Path.expand(burrito_path)
+  end
+
+  def executable_path(_burrito_path, escript_name) do
+    case escript_name do
       ~c"" -> Path.expand("canaryd")
       name -> Path.expand(List.to_string(name))
     end

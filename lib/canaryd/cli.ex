@@ -1,13 +1,21 @@
 defmodule Canaryd.CLI do
-  @moduledoc "escript entry: check | thermal-check | status | history [target] | install | uninstall"
+  @moduledoc "escript entry: check | thermal-check | status | history [target] | install | uninstall | --version"
 
   alias Canaryd.{Checker, Duration, Setup, Store, System, ThermalMonitor, UnresponsiveMonitor}
   alias Canaryd.Apps.CleanClip
 
-  def main(argv) do
+  def main(argv, options \\ []) do
     # launchd is an implementation detail: self-heal on every invocation
-    unless argv == ["uninstall"], do: Setup.ensure_installed()
+    unless argv in [["--version"], ["version"], ["uninstall"]] do
+      ensure_installed = Keyword.get(options, :ensure_installed, &Setup.ensure_installed/0)
+      ensure_installed.()
+    end
+
     dispatch(argv)
+  end
+
+  defp dispatch([command]) when command in ["--version", "version"] do
+    IO.puts("canaryd #{Application.spec(:canaryd, :vsn)}")
   end
 
   defp dispatch(["check"]) do
@@ -119,6 +127,7 @@ defmodule Canaryd.CLI do
       canaryd history [target]   event timeline (cleanclip, system, thermal, apps)
       canaryd install            (re)install the launchd agents (usually automatic)
       canaryd uninstall          remove the launchd agents
+      canaryd --version          show the installed version
     """)
   end
 
