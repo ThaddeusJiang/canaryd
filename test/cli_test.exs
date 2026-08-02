@@ -9,6 +9,6 @@ defmodule Canaryd.CLITest do
     ensure_installed = fn -> flunk("version must not install launchd agents") end
 
     assert capture_io(fn -> CLI.main(["--version"], ensure_installed: ensure_installed) end) ==
-             "canaryd 0.2.0\n"
+             "canaryd 0.3.0-rc.1\n"
   end
 end
