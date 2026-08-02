@@ -1,0 +1,71 @@
+name: Release
+run-name: Release ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag, for example v0.3.0-rc.1
+        required: true
+        type: string
+      confirm_config_changes:
+        description: Confirm reviewed release configuration changes
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release ${{ inputs.tag }}
+    runs-on: macos-15
+    env:
+      TAG: ${{ inputs.tag }}
+      MIX_ENV: prod
+    steps:
+      - name: Check out ${{ inputs.tag }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Set up BEAM for ${{ inputs.tag }}
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: 1.19.5
+          otp-version: 28.1.1
+
+      - name: Set up Zig for ${{ inputs.tag }}
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Validate ${{ inputs.tag }}
+        shell: bash
+        env:
+          CONFIG_CHANGES_CONFIRMED: ${{ inputs.confirm_config_changes }}
+        run: scripts/release.sh validate
+
+      - name: Test ${{ inputs.tag }}
+        shell: bash
+        env:
+          MIX_ENV: test
+        run: |
+          mix deps.get
+          mix test
+
+      - name: Build ${{ inputs.tag }} executables
+        shell: bash
+        run: scripts/release.sh build
+
+      - name: Publish ${{ inputs.tag }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release.sh publish
