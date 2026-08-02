@@ -49,6 +49,8 @@ Do not require the user to install Erlang or Elixir.
 14. Add the install directory to the current shell profile when necessary.
 15. Accept stable tags and `rc.N` tags that match the Mix project version.
 16. Mark each `rc.N` GitHub Release as a prerelease.
+17. Resolve every user-specific directory from the runtime user environment.
+18. Do not include the release build user's home directory in runtime paths.
 
 ## BDD Scenarios
 
@@ -122,6 +124,25 @@ Test Plan:
 - Lowest useful level: workflow contract test.
 - Follow-up test: inspect the published GitHub Release.
 
+### BDD-05 Use the runtime user's directories
+
+Given:
+- A release executable was built by a different macOS user.
+- The executable runs with the current user's `HOME` environment variable.
+
+When:
+- Canaryd installs its notification helper and launchd agents.
+- Canaryd reads or writes its state and CleanClip history paths.
+
+Then:
+- Canaryd uses directories under the runtime user's home directory.
+- Canaryd does not use the release build user's home directory.
+
+Test Plan:
+- Lowest useful level: unit tests for all user-specific path functions.
+- First failing test: change `HOME` after module compilation and resolve every user-specific path.
+- Follow-up test: inspect the packaged executable for a build-user application support path.
+
 ## Security and Operations
 
 - Every GitHub Action reference uses a full commit SHA.
@@ -139,3 +160,4 @@ Test Plan:
 | BDD-02 | passed | `Canaryd.SetupTest` | Both installation formats stay supported. |
 | BDD-03 | passed | `Canaryd.InstallScriptTest` | The test uses local release fixtures. |
 | BDD-04 | passed | `Canaryd.ReleaseConfigTest` | The release workflow adds the GitHub prerelease flag for `rc.N` tags. |
+| BDD-05 | passed | `Canaryd.RuntimePathsTest`; ARM64 executable run with an isolated `HOME`; extracted payload inspection | Reported by the `v0.3.0-rc.1` user test. |

@@ -12,25 +12,24 @@ defmodule Canaryd.Store do
   Each CLI run opens the tables, does its work, syncs and closes.
   """
 
-  @dir Path.expand("~/Library/Application Support/canaryd")
-  @lockfile Path.join(@dir, "canaryd.lock")
+  alias Canaryd.{Duration, Paths}
 
-  alias Canaryd.Duration
-
-  def dir, do: @dir
+  def dir, do: Paths.support_dir()
 
   @doc "Run `fun` with both tables open, guarded by an exclusive lockfile."
   def with_tables(fun) do
-    File.mkdir_p!(@dir)
+    dir = dir()
+    lockfile = Path.join(dir, "canaryd.lock")
+    File.mkdir_p!(dir)
 
-    case File.open(@lockfile, [:write, :exclusive]) do
+    case File.open(lockfile, [:write, :exclusive]) do
       {:error, :eexist} ->
         {:error, :locked}
 
       {:ok, lock} ->
         try do
-          {:ok, state} = open_table(:state)
-          {:ok, events} = open_table(:events)
+          {:ok, state} = open_table(:state, dir)
+          {:ok, events} = open_table(:events, dir)
 
           try do
             fun.(state, events)
@@ -42,13 +41,13 @@ defmodule Canaryd.Store do
           end
         after
           File.close(lock)
-          File.rm(@lockfile)
+          File.rm(lockfile)
         end
     end
   end
 
-  defp open_table(name) do
-    path = String.to_charlist(Path.join(@dir, "#{name}.dets"))
+  defp open_table(name, dir) do
+    path = String.to_charlist(Path.join(dir, "#{name}.dets"))
 
     case :dets.open_file(name, file: path, type: :set, repair: true) do
       {:ok, table} -> {:ok, table}
@@ -58,7 +57,7 @@ defmodule Canaryd.Store do
   end
 
   defp repair_and_open(name, path) do
-    File.rm(Path.join(@dir, "#{name}.dets"))
+    File.rm(List.to_string(path))
     :dets.open_file(name, file: path, type: :set)
   end
 
