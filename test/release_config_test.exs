@@ -13,11 +13,13 @@ defmodule Canaryd.ReleaseConfigTest do
            ]
   end
 
-  test "publishes rc tags as GitHub prereleases" do
+  test "delegates release logic to the release script" do
     workflow = File.read!(".github/workflows/release.yml")
 
-    assert workflow =~ "(-rc\\.[1-9][0-9]*)?"
-    assert workflow =~ "release_flags+=(--prerelease)"
-    assert workflow =~ ~S("${release_flags[@]}")
+    assert workflow =~ "scripts/release.sh validate"
+    assert workflow =~ "scripts/release.sh build"
+    assert workflow =~ "scripts/release.sh publish"
+    refute workflow =~ "codesign --force"
+    refute workflow =~ "gh release create"
   end
 end
