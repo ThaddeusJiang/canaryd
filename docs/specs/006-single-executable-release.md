@@ -30,6 +30,7 @@ Do not require the user to install Erlang or Elixir.
 - Publish one SHA-256 checksum file for all archives.
 - Publish `rc.N` tags as GitHub prereleases.
 - Keep the existing escript build for Hex users.
+- Publish the matching package and documentation to Hex from the same release workflow.
 
 ## Behavior
 
@@ -51,6 +52,8 @@ Do not require the user to install Erlang or Elixir.
 16. Mark each `rc.N` GitHub Release as a prerelease.
 17. Resolve every user-specific directory from the runtime user environment.
 18. Do not include the release build user's home directory in runtime paths.
+19. Publish the GitHub Release and Hex package from the same version tag.
+20. Read the Hex publish key only from the `HEX_API_KEY` GitHub Actions secret.
 
 ## BDD Scenarios
 
@@ -143,6 +146,24 @@ Test Plan:
 - First failing test: change `HOME` after module compilation and resolve every user-specific path.
 - Follow-up test: inspect the packaged executable for a build-user application support path.
 
+### BDD-06 Publish the matching Hex package
+
+Given:
+- A release tag matches the Mix project version.
+- GitHub Actions can read the `HEX_API_KEY` secret.
+
+When:
+- The release workflow publishes the tag.
+
+Then:
+- GitHub contains the release assets for the tag.
+- Hex contains the package and documentation for the same version.
+
+Test Plan:
+- Lowest useful level: workflow contract test.
+- First failing test: require one Hex publish step with a step-scoped secret.
+- Follow-up test: inspect the public Hex package after the workflow completes.
+
 ## Security and Operations
 
 - Every GitHub Action reference uses a full commit SHA.
@@ -161,3 +182,4 @@ Test Plan:
 | BDD-03 | passed | `Canaryd.InstallScriptTest` | The test uses local release fixtures. |
 | BDD-04 | passed | `Canaryd.ReleaseConfigTest` | The release workflow adds the GitHub prerelease flag for `rc.N` tags. |
 | BDD-05 | passed | `Canaryd.RuntimePathsTest`; ARM64 executable run with an isolated `HOME`; extracted payload inspection | Reported by the `v0.3.0-rc.1` user test. |
+| BDD-06 | pending | Workflow contract test and public Hex package inspection | Hex currently stops at `0.2.0`. |

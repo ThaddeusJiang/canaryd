@@ -22,4 +22,13 @@ defmodule Canaryd.ReleaseConfigTest do
     refute workflow =~ "codesign --force"
     refute workflow =~ "gh release create"
   end
+
+  test "publishes the matching Hex package with a step-scoped secret" do
+    workflow = File.read!(".github/workflows/release.yml")
+
+    assert workflow =~ "name: Publish Hex package for ${{ inputs.tag }}"
+    assert workflow =~ "HEX_API_KEY: ${{ secrets.HEX_API_KEY }}"
+    assert workflow =~ "MIX_ENV: dev"
+    assert workflow =~ "mix hex.publish --yes"
+  end
 end

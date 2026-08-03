@@ -69,3 +69,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: scripts/release.sh publish
+
+      - name: Publish Hex package for ${{ inputs.tag }}
+        shell: bash
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+          MIX_ENV: dev
+        run: |
+          mix deps.get
+          mix hex.publish --yes
