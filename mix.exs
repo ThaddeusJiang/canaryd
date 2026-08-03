@@ -4,7 +4,7 @@ defmodule Canaryd.MixProject do
   def project do
     [
       app: :canaryd,
-      version: "0.3.0-rc.2",
+      version: "0.3.0",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       escript: [main_module: Canaryd.CLI, name: "canaryd"],
