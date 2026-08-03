@@ -182,4 +182,4 @@ Test Plan:
 | BDD-03 | passed | `Canaryd.InstallScriptTest` | The test uses local release fixtures. |
 | BDD-04 | passed | `Canaryd.ReleaseConfigTest` | The release workflow adds the GitHub prerelease flag for `rc.N` tags. |
 | BDD-05 | passed | `Canaryd.RuntimePathsTest`; ARM64 executable run with an isolated `HOME`; extracted payload inspection | Reported by the `v0.3.0-rc.1` user test. |
-| BDD-06 | pending | Workflow contract test and public Hex package inspection | Hex currently stops at `0.2.0`. |
+| BDD-06 | passed | [Release workflow](https://github.com/ThaddeusJiang/canaryd/actions/runs/30779692926), [Hex package](https://hex.pm/packages/canaryd/0.3.0), and [HexDocs](https://hexdocs.pm/canaryd/0.3.0/) | The workflow published `0.3.0` to GitHub and Hex. |
