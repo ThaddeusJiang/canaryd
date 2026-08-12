@@ -120,5 +120,6 @@ Show these common commands:
 canaryd status
 canaryd check
 canaryd history thermal
+canaryd history memory
 canaryd history apps
 ```

@@ -34,6 +34,8 @@ problems that a simple process check can miss.
   processes that correlate with the load.
 - **Recover stalled apps.** Confirm that a GUI app is not responding before a
   controlled restart.
+- **Reclaim idle memory.** Gracefully close an inactive third-party app after it
+  stays above 1 GB RSS with low CPU use while the user is away.
 - **Verify CleanClip.** Check that CleanClip records new clipboard items, not
   only that its process exists.
 - **Stay quiet.** Use background restarts and Notification Center. Do not open
@@ -179,7 +181,7 @@ The first command installs two launchd agents:
 | Agent | Interval | Work |
 | --- | ---: | --- |
 | Thermal check | 1 minute | Read temperature and find high-CPU processes |
-| Full health check | 5 minutes | Check the system, GUI apps, and CleanClip |
+| Full health check | 5 minutes | Check the system, GUI apps, idle memory, and CleanClip |
 
 Every command verifies these agents. If an agent is missing, Canaryd creates it
 again. You do not need to manage plist files.
@@ -191,7 +193,7 @@ again. You do not need to manage plist files.
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, or `apps` |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, or `apps` |
 | `canaryd install` | Reinstall and load both launchd agents |
 | `canaryd uninstall` | Remove both launchd agents and the notification helper |
 | `canaryd --version` | Show the installed version without changing launchd agents |
@@ -201,6 +203,7 @@ Examples:
 ```sh
 canaryd check
 canaryd history thermal
+canaryd history memory
 canaryd history apps
 ```
 
@@ -213,6 +216,7 @@ app.
 | --- | --- | --- |
 | CPU or GPU heat | Three `macmon` samples; keep the highest average | Notify on the first hot round; offer an action after the same safe app leads two rounds |
 | GUI app hang | Read the state that macOS uses in Force Quit | Confirm twice, then restart a supported third-party app |
+| Idle high memory | Aggregate app RSS and CPU while the user is away | Confirm three times, then request a graceful close |
 | CleanClip process | Check the process with `pgrep` | Restart it in the background when it is missing |
 | CleanClip function | Write a reversible clipboard marker and verify a new history entry | Restore the clipboard, then restart CleanClip after a failed probe |
 | System pressure | Read thermal throttling, load, and memory pressure | Warn after three consecutive full checks |
@@ -222,13 +226,19 @@ app.
 - Canaryd never treats battery temperature as CPU or GPU temperature.
 - A user clipboard change always takes priority over probe restoration.
 - A third-party GUI app must fail two consecutive checks before restart.
-- Apple apps, system daemons, and unsafe helper processes do not get automatic
-  actions.
-- Each app has a one-hour restart or prompt cooldown.
-- Automatic termination can discard unsaved data in a stalled app.
+- Apple apps, system daemons, active apps, and unsafe helper processes do not
+  get automatic actions.
+- An idle-memory app must remain above 1 GB RSS and at or below 1% CPU for three
+  checks after 30 minutes of user inactivity.
+- Idle-memory recovery requests a graceful close and never escalates to
+  `SIGKILL`.
+- Each app has a one-hour restart, prompt, or close cooldown.
+- Automatic termination can interrupt background work or expose an unsaved
+  changes prompt.
 
 When the Mac is idle for more than 30 minutes, Canaryd skips the CleanClip
-functional probe. It still checks the system and GUI responsiveness.
+functional probe. It still checks the system, GUI responsiveness, and idle
+high-memory apps.
 
 <details>
 <summary><strong>Detailed recovery policy</strong></summary>
@@ -249,6 +259,20 @@ Close and Restart. Dismissal or timeout means Ignore. Canaryd does not activate
 the app or take mouse focus. Apple apps, system services, nested helper apps,
 and processes without a safe app bundle never get these actions. Each app has a
 one-hour prompt cooldown.
+
+### Idle memory recovery
+
+During the five-minute full check, Canaryd aggregates RSS and CPU use for every
+current-user process inside a registered top-level app bundle. After the user
+has been inactive for 30 minutes, a non-active third-party app becomes a
+candidate when it uses at least 1 GB RSS and at most 1% aggregate CPU for three
+consecutive checks.
+
+Canaryd then asks macOS to terminate the app gracefully and sends a Notification
+Center result. It does not force-kill an app that refuses or remains open.
+Apple apps, system paths, command-line daemons, nested helper bundles, other
+users' processes, and the active application are protected. The same app has a
+one-hour close cooldown.
 
 ### GUI app recovery
 

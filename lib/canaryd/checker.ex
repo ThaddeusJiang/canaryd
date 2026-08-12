@@ -12,6 +12,8 @@ defmodule Canaryd.Checker do
 
   alias Canaryd.{
     Duration,
+    MemoryMonitor,
+    MemoryProcesses,
     Notifier,
     StateMachine,
     Store,
@@ -28,7 +30,13 @@ defmodule Canaryd.Checker do
       sys = System.check()
       record_system(state, events, sys)
       thermal_monitor = check_thermal_processes(state, events, sys)
-      sys = Map.put(sys, :thermal_monitor, thermal_monitor)
+      memory_monitor = check_idle_memory_processes(state, events, idle)
+
+      sys =
+        sys
+        |> Map.put(:thermal_monitor, thermal_monitor)
+        |> Map.put(:memory_monitor, memory_monitor)
+
       app_monitor = check_unresponsive_apps(state, events)
 
       if idle > Duration.minutes(30) do
@@ -179,6 +187,79 @@ defmodule Canaryd.Checker do
     Enum.map_join(suspects, ", ", fn process ->
       "#{process.name} (PID #{process.pid}, CPU #{process.cpu_percent}%)"
     end)
+  end
+
+  defp check_idle_memory_processes(state, events, idle_duration) do
+    monitor_state =
+      Store.get_value(state, :idle_memory_processes, MemoryMonitor.default_state())
+
+    if idle_duration >= MemoryMonitor.minimum_idle() do
+      case MemoryProcesses.scan() do
+        {:ok, apps} ->
+          {new_monitor_state, actions} =
+            MemoryMonitor.evaluate(monitor_state, apps, idle_duration, DateTime.utc_now())
+
+          Store.put_state(state, :idle_memory_processes, new_monitor_state)
+          results = Enum.map(actions, &run_memory_action(events, &1))
+          detected = Enum.count(apps, &MemoryMonitor.candidate?/1)
+
+          %{status: :available, detected: detected, actions: results}
+
+        {:error, reason} ->
+          Store.put_state(
+            state,
+            :idle_memory_processes,
+            MemoryMonitor.reset_observations(monitor_state)
+          )
+
+          %{status: :unavailable, detected: 0, actions: [], reason: reason}
+      end
+    else
+      {new_monitor_state, []} =
+        MemoryMonitor.evaluate(monitor_state, [], idle_duration, DateTime.utc_now())
+
+      Store.put_state(state, :idle_memory_processes, new_monitor_state)
+      %{status: :skipped_active, detected: 0, actions: []}
+    end
+  end
+
+  defp run_memory_action(events, {:detected, app, count}) do
+    details = app |> memory_details() |> Map.put(:count, count)
+    Store.log_event(events, :memory, :idle_high_memory_detected, details)
+    :detected
+  end
+
+  defp run_memory_action(events, {:close, app}) do
+    case MemoryProcesses.close(app) do
+      :ok ->
+        details = memory_details(app)
+        Store.log_event(events, :memory, :closed, details)
+
+        Notifier.notify(
+          "Mac Health",
+          "Closed idle #{app.name} after it used #{app.rss_mb} MB of memory."
+        )
+
+        :closed
+
+      {:error, reason} ->
+        details = Map.put(memory_details(app), :reason, inspect(reason))
+        Store.log_event(events, :memory, :close_failed, details)
+        Notifier.notify("Mac Health", "Could not close idle high-memory app #{app.name}.")
+        :close_failed
+    end
+  end
+
+  defp memory_details(app) do
+    Map.take(app, [
+      :id,
+      :name,
+      :pid,
+      :rss_mb,
+      :cpu_percent,
+      :bundle_id,
+      :bundle_path
+    ])
   end
 
   defp check_unresponsive_apps(state, events) do
