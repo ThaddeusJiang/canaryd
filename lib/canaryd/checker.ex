@@ -4,9 +4,10 @@ defmodule Canaryd.Checker do
 
     1. L1 system: CPU/GPU temperature / thermal / load / memory
     2. Scan the macOS unresponsive state for third-party GUI apps
-    3. User idle > 30min? -> skip the CleanClip probe
-    4. L2 CleanClip process liveness (relaunch silently if dead)
-    5. L3 CleanClip functional probe, state machine, silent auto-restart,
+    3. Confirm and shut down long-idle Simulator devices
+    4. User idle > 30min? -> skip the CleanClip probe
+    5. L2 CleanClip process liveness (relaunch silently if dead)
+    6. L3 CleanClip functional probe, state machine, silent auto-restart,
        notify only when blocked.
   """
 
@@ -15,6 +16,8 @@ defmodule Canaryd.Checker do
     MemoryMonitor,
     MemoryProcesses,
     Notifier,
+    SimulatorMonitor,
+    Simulators,
     StateMachine,
     Store,
     System,
@@ -31,11 +34,13 @@ defmodule Canaryd.Checker do
       record_system(state, events, sys)
       thermal_monitor = check_thermal_processes(state, events, sys)
       memory_monitor = check_idle_memory_processes(state, events, idle)
+      simulator_monitor = check_idle_simulators(state, events, idle)
 
       sys =
         sys
         |> Map.put(:thermal_monitor, thermal_monitor)
         |> Map.put(:memory_monitor, memory_monitor)
+        |> Map.put(:simulator_monitor, simulator_monitor)
 
       app_monitor = check_unresponsive_apps(state, events)
 
@@ -260,6 +265,129 @@ defmodule Canaryd.Checker do
       :bundle_id,
       :bundle_path
     ])
+  end
+
+  defp check_idle_simulators(state, events, idle_duration) do
+    monitor_state =
+      Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
+
+    if idle_duration >= SimulatorMonitor.minimum_idle() do
+      with {:ok, devices} <- Simulators.scan(),
+           {:ok, automation_processes} <- Simulators.active_automation_processes() do
+        automation_active = automation_processes != []
+        now = DateTime.utc_now()
+
+        {new_monitor_state, actions} =
+          SimulatorMonitor.evaluate(
+            monitor_state,
+            devices,
+            idle_duration,
+            automation_active,
+            now
+          )
+
+        Store.put_state(state, :idle_simulators, new_monitor_state)
+
+        if automation_active do
+          %{
+            status: :skipped_automation,
+            booted: length(devices),
+            detected: 0,
+            actions: [],
+            automation_processes: automation_processes
+          }
+        else
+          results = Enum.map(actions, &{&1, run_simulator_action(events, &1)})
+          notify_simulator_results(results)
+
+          %{
+            status: :available,
+            booted: length(devices),
+            detected: Enum.count(devices, &SimulatorMonitor.candidate?(&1, now)),
+            actions: Enum.map(results, &elem(&1, 1))
+          }
+        end
+      else
+        {:error, reason} ->
+          Store.put_state(
+            state,
+            :idle_simulators,
+            SimulatorMonitor.reset_observations(monitor_state)
+          )
+
+          %{status: :unavailable, booted: 0, detected: 0, actions: [], reason: reason}
+      end
+    else
+      {new_monitor_state, []} =
+        SimulatorMonitor.evaluate(monitor_state, [], idle_duration, false, DateTime.utc_now())
+
+      Store.put_state(state, :idle_simulators, new_monitor_state)
+      %{status: :skipped_active, booted: 0, detected: 0, actions: []}
+    end
+  end
+
+  defp run_simulator_action(events, {:detected, device, count}) do
+    details = device |> simulator_details() |> Map.put(:count, count)
+    Store.log_event(events, :simulators, :idle_detected, details)
+    :detected
+  end
+
+  defp run_simulator_action(events, {:shutdown, device}) do
+    with true <- System.idle_duration() >= SimulatorMonitor.minimum_idle(),
+         {:ok, []} <- Simulators.active_automation_processes(),
+         :ok <- Simulators.shutdown(device) do
+      Store.log_event(events, :simulators, :shutdown, simulator_details(device))
+      :shutdown
+    else
+      false ->
+        simulator_shutdown_skipped(events, device, :user_activity_resumed)
+
+      {:ok, [_process | _processes]} ->
+        simulator_shutdown_skipped(events, device, :automation_started)
+
+      :already_stopped ->
+        simulator_shutdown_skipped(events, device, :already_stopped)
+
+      {:error, :device_activity_changed} ->
+        simulator_shutdown_skipped(events, device, :device_activity_changed)
+
+      {:error, reason} ->
+        details = Map.put(simulator_details(device), :reason, inspect(reason))
+        Store.log_event(events, :simulators, :shutdown_failed, details)
+        :shutdown_failed
+    end
+  end
+
+  defp simulator_shutdown_skipped(events, device, reason) do
+    details = Map.put(simulator_details(device), :reason, reason)
+    Store.log_event(events, :simulators, :shutdown_skipped, details)
+    :shutdown_skipped
+  end
+
+  defp notify_simulator_results(results) do
+    shutdown_names =
+      for {{:shutdown, device}, :shutdown} <- results, do: device.name
+
+    failed_names =
+      for {{:shutdown, device}, :shutdown_failed} <- results, do: device.name
+
+    if shutdown_names != [] do
+      Notifier.notify(
+        "Mac Health",
+        "Shut down idle Simulators: #{Enum.join(shutdown_names, ", ")}."
+      )
+    end
+
+    if failed_names != [] do
+      Notifier.notify(
+        "Mac Health",
+        "Could not shut down idle Simulators: #{Enum.join(failed_names, ", ")}."
+      )
+    end
+  end
+
+  defp simulator_details(device) do
+    Map.take(device, [:udid, :name, :runtime, :state, :last_used_at])
   end
 
   defp check_unresponsive_apps(state, events) do

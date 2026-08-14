@@ -12,6 +12,11 @@ defmodule Canaryd.Paths do
   end
 
   @doc false
+  def simulator_devices_dir do
+    Path.join([home_dir(), "Library", "Developer", "CoreSimulator", "Devices"])
+  end
+
+  @doc false
   def clean_clip_history_dir do
     Path.join([
       home_dir(),

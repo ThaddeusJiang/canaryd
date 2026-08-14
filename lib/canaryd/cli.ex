@@ -5,6 +5,7 @@ defmodule Canaryd.CLI do
     Checker,
     Duration,
     MemoryMonitor,
+    SimulatorMonitor,
     Setup,
     Store,
     System,
@@ -37,14 +38,15 @@ defmodule Canaryd.CLI do
         IO.puts(
           "idle #{Duration.to_external(idle, :second)}s, CleanClip probe skipped; " <>
             "system warnings: #{length(sys.warnings)}; " <>
-            "#{thermal_summary(sys)}; #{memory_summary(sys)}; #{app_check_summary(apps)}"
+            "#{thermal_summary(sys)}; #{memory_summary(sys)}; " <>
+            "#{simulator_summary(sys)}; #{app_check_summary(apps)}"
         )
 
       {:checked, _idle, sys, cc, apps} ->
         IO.puts(
           "cleanclip: #{cc.probe} (#{cc.action}), failures=#{cc.failures}; " <>
             "system warnings: #{inspect(sys.warnings)}; #{thermal_summary(sys)}; " <>
-            memory_summary(sys)
+            "#{memory_summary(sys)}; #{simulator_summary(sys)}"
         )
 
         IO.puts(app_check_summary(apps))
@@ -95,6 +97,12 @@ defmodule Canaryd.CLI do
 
       pending_memory_apps = MemoryMonitor.pending_apps(memory_state)
       IO.puts("idle high-memory apps: #{format_memory_apps(pending_memory_apps)}")
+
+      simulator_state =
+        Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
+
+      pending_simulators = SimulatorMonitor.pending_devices(simulator_state)
+      IO.puts("idle Simulators pending: #{format_simulators(pending_simulators)}")
     end)
 
     IO.puts("\ncleanclip process alive: #{CleanClip.process_alive?()}")
@@ -141,7 +149,7 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check (launchd does this every 1 min)
       canaryd status             current health snapshot
-      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, apps)
+      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, apps)
       canaryd install            (re)install the launchd agents (usually automatic)
       canaryd uninstall          remove the launchd agents
       canaryd --version          show the installed version
@@ -170,6 +178,12 @@ defmodule Canaryd.CLI do
     end)
   end
 
+  defp format_simulators([]), do: "none"
+
+  defp format_simulators(devices) do
+    Enum.map_join(devices, ", ", fn device -> "#{device.name} (#{device.udid})" end)
+  end
+
   defp memory_summary(%{memory_monitor: %{status: :skipped_active}}) do
     "idle memory scan: waiting for 30 minutes of user inactivity"
   end
@@ -180,6 +194,24 @@ defmodule Canaryd.CLI do
 
   defp memory_summary(%{memory_monitor: %{status: :unavailable}}) do
     "idle memory scan unavailable"
+  end
+
+  defp simulator_summary(%{simulator_monitor: %{status: :skipped_active}}) do
+    "idle Simulator scan: waiting for 30 minutes of user inactivity"
+  end
+
+  defp simulator_summary(%{simulator_monitor: %{status: :skipped_automation} = monitor}) do
+    names = Enum.map_join(monitor.automation_processes, ", ", & &1.name)
+    "idle Simulator scan: automation active (#{names})"
+  end
+
+  defp simulator_summary(%{simulator_monitor: %{status: :available} = monitor}) do
+    "booted Simulators=#{monitor.booted}, idle candidates=#{monitor.detected}, " <>
+      "actions=#{inspect(monitor.actions)}"
+  end
+
+  defp simulator_summary(%{simulator_monitor: %{status: :unavailable}}) do
+    "idle Simulator scan unavailable"
   end
 
   defp thermal_summary(%{thermal_pressure: false} = system) do
@@ -204,6 +236,7 @@ defmodule Canaryd.CLI do
   defp history_target("system"), do: :system
   defp history_target("thermal"), do: :thermal
   defp history_target("memory"), do: :memory
+  defp history_target(target) when target in ["simulator", "simulators"], do: :simulators
   defp history_target("apps"), do: :apps
   defp history_target(_target), do: :unknown
 

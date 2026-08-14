@@ -36,6 +36,8 @@ problems that a simple process check can miss.
   controlled restart.
 - **Reclaim idle memory.** Gracefully close an inactive third-party app after it
   stays above 1 GB RSS with low CPU use while the user is away.
+- **Stop idle Simulators.** Shut down booted Simulator devices after sustained
+  whole-Mac inactivity, while protecting active Xcode test runs.
 - **Verify CleanClip.** Check that CleanClip records new clipboard items, not
   only that its process exists.
 - **Stay quiet.** Use background restarts and Notification Center. Do not open
@@ -45,7 +47,7 @@ problems that a simple process check can miss.
 ## Status at a glance
 
 Run `canaryd status` to see health, recent recovery events, pending app hangs,
-and thermal pressure.
+idle Simulators, and thermal pressure.
 
 ![Example Canaryd status output](https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/docs/images/canaryd-status.svg)
 
@@ -181,7 +183,7 @@ The first command installs two launchd agents:
 | Agent | Interval | Work |
 | --- | ---: | --- |
 | Thermal check | 1 minute | Read temperature and find high-CPU processes |
-| Full health check | 5 minutes | Check the system, GUI apps, idle memory, and CleanClip |
+| Full health check | 5 minutes | Check the system, GUI apps, idle memory, Simulators, and CleanClip |
 
 Every command verifies these agents. If an agent is missing, Canaryd creates it
 again. You do not need to manage plist files.
@@ -193,7 +195,7 @@ again. You do not need to manage plist files.
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, or `apps` |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, or `apps` |
 | `canaryd install` | Reinstall and load both launchd agents |
 | `canaryd uninstall` | Remove both launchd agents and the notification helper |
 | `canaryd --version` | Show the installed version without changing launchd agents |
@@ -204,6 +206,7 @@ Examples:
 canaryd check
 canaryd history thermal
 canaryd history memory
+canaryd history simulators
 canaryd history apps
 ```
 
@@ -217,6 +220,7 @@ app.
 | CPU or GPU heat | Three `macmon` samples; keep the highest average | Notify on the first hot round; offer an action after the same safe app leads two rounds |
 | GUI app hang | Read the state that macOS uses in Force Quit | Confirm twice, then restart a supported third-party app |
 | Idle high memory | Aggregate app RSS and CPU while the user is away | Confirm three times, then request a graceful close |
+| Idle Simulator | Combine whole-Mac inactivity with CoreSimulator device age | Confirm three times, then shut down the exact booted device |
 | CleanClip process | Check the process with `pgrep` | Restart it in the background when it is missing |
 | CleanClip function | Write a reversible clipboard marker and verify a new history entry | Restore the clipboard, then restart CleanClip after a failed probe |
 | System pressure | Read thermal throttling, load, and memory pressure | Warn after three consecutive full checks |
@@ -232,13 +236,15 @@ app.
   checks after 30 minutes of user inactivity.
 - Idle-memory recovery requests a graceful close and never escalates to
   `SIGKILL`.
+- Simulator recovery never erases or deletes a device and pauses while a
+  current-user `xcodebuild` or `xctest` process is active.
 - Each app has a one-hour restart, prompt, or close cooldown.
 - Automatic termination can interrupt background work or expose an unsaved
   changes prompt.
 
 When the Mac is idle for more than 30 minutes, Canaryd skips the CleanClip
 functional probe. It still checks the system, GUI responsiveness, and idle
-high-memory apps.
+high-memory apps and Simulators.
 
 <details>
 <summary><strong>Detailed recovery policy</strong></summary>
@@ -290,6 +296,21 @@ After two failed rounds, Canaryd sends a 120-second notification with Close and
 Restart actions. Dismissal or timeout means Ignore. Close or Restart can
 force-stop the current instance. macOS starts a new instance through launchd or
 an XPC client when it is needed. The notification has a one-hour cooldown.
+
+### Idle Simulator shutdown
+
+During the five-minute full check, Canaryd considers booted Simulator devices
+only after the user has been inactive for 30 minutes. A device must also have a
+CoreSimulator `lastUsedAt` age of at least 30 minutes and remain eligible for
+three consecutive checks. This makes the earliest shutdown roughly 40 minutes
+after both inactivity conditions begin.
+
+Current-user `xcodebuild` and `xctest` processes reset confirmation so
+unattended Xcode test runs are protected. Before shutdown, Canaryd checks user
+inactivity and automation again, then revalidates the exact UDID and timestamp.
+It runs only `simctl shutdown <UDID>`; it never erases, deletes, or resets the
+device. Successful and failed shutdowns are recorded locally and reported in a
+batched Notification Center message.
 
 ### CleanClip recovery
 
