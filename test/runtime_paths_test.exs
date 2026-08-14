@@ -29,6 +29,9 @@ defmodule Canaryd.RuntimePathsTest do
 
     assert Paths.launch_agents_dir() == Path.join([runtime_home, "Library", "LaunchAgents"])
 
+    assert Paths.simulator_devices_dir() ==
+             Path.join([runtime_home, "Library", "Developer", "CoreSimulator", "Devices"])
+
     assert CleanClip.history_dir() ==
              Path.join([
                runtime_home,

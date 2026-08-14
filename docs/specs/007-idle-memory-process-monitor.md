@@ -162,6 +162,7 @@ Then:
 - [001 Unresponsive App Recovery](./001-unresponsive-app-recovery.md)
 - [003 Thermal Process Monitor](./003-thermal-process-monitor.md)
 - [005 Time Unit Convention](./005-time-unit-convention.md)
+- [008 Idle Simulator Shutdown](./008-idle-simulator-shutdown.md)
 
 ## Open Questions
 
