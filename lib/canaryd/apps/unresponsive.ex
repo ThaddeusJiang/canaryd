@@ -50,7 +50,7 @@ defmodule Canaryd.Apps.Unresponsive do
   rows.join("\\n")
   """
 
-  @doc "Returns the third-party GUI apps that macOS marks as unresponsive."
+  @doc "Returns supported GUI apps and services that macOS marks as unresponsive."
   def scan do
     case System.cmd("osascript", ["-l", "JavaScript", "-e", @scan_script], stderr_to_stdout: true) do
       {output, 0} ->
@@ -86,14 +86,14 @@ defmodule Canaryd.Apps.Unresponsive do
   end
 
   @doc false
-  def recovery_mode(app) do
-    if cursor_ui_service?(app), do: :interactive, else: :automatic
-  end
+  def recovery_mode(_app), do: :automatic
 
-  @doc "Stops the unresponsive process and opens the same app bundle."
+  @doc "Stops the unresponsive process and starts or waits for its replacement."
   def restart(%{
-        recovery: :interactive,
+        recovery: :automatic,
+        activation_policy: 2,
         bundle_id: @cursor_ui_service,
+        bundle_path: @cursor_ui_path,
         name: name,
         pid: pid
       })
@@ -123,15 +123,6 @@ defmodule Canaryd.Apps.Unresponsive do
   def restart(_app), do: {:error, :invalid_app}
 
   @doc "Stops the current process without opening a replacement app."
-  def close(%{
-        recovery: :interactive,
-        bundle_id: @cursor_ui_service,
-        pid: pid
-      })
-      when is_integer(pid) and pid > 0 do
-    stop_process(pid)
-  end
-
   def close(%{pid: pid}) when is_integer(pid) and pid > 0 do
     stop_process(pid)
   end

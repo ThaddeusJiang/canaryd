@@ -59,27 +59,6 @@ defmodule Canaryd.NotifierTest do
              {:error, {:notification_failed, "not permitted"}}
   end
 
-  test "asks for an app action in a notification" do
-    caller = self()
-
-    runner = fn bin, args ->
-      send(caller, {:command, bin, args})
-      {"restart\n", 0}
-    end
-
-    assert Notifier.choose_app_action("CursorUIViewService", runner) == {:ok, :restart}
-
-    assert_receive {:command, helper, args}
-    assert helper == Canaryd.NotificationHelper.executable_path()
-
-    assert args == [
-             "action",
-             "Mac Health",
-             "CursorUIViewService is not responding. Close or Restart can force-stop this instance. macOS opens the service again when needed.",
-             "120000"
-           ]
-  end
-
   test "asks for a thermal action in a notification" do
     runner = fn _bin, args ->
       assert args == [
