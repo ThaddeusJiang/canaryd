@@ -11,7 +11,6 @@ defmodule Canaryd.UnresponsiveMonitor do
     %{
       observations: %{},
       restarts: %{},
-      prompts: %{},
       blocked: MapSet.new()
     }
   end
@@ -19,8 +18,7 @@ defmodule Canaryd.UnresponsiveMonitor do
   @doc """
   Evaluates one scan and returns `{new_state, actions}`.
 
-  Actions are `{:detected, app, count}`, `{:restart, app}`, `{:choose, app}`,
-  or `{:blocked, app}`.
+  Actions are `{:detected, app, count}`, `{:restart, app}`, or `{:blocked, app}`.
   """
   def evaluate(state, apps, now) do
     state = normalize_state(state, now)
@@ -54,7 +52,6 @@ defmodule Canaryd.UnresponsiveMonitor do
     %{
       observations: %{},
       restarts: Map.get(state, :restarts, %{}),
-      prompts: Map.get(state, :prompts, %{}),
       blocked: Map.get(state, :blocked, MapSet.new())
     }
   end
@@ -72,19 +69,6 @@ defmodule Canaryd.UnresponsiveMonitor do
 
         {%{state | observations: Map.put(state.observations, app.id, observation)},
          {:detected, app, count}}
-
-      app.recovery == :interactive and prompt_allowed?(state, app.id, now) ->
-        next_state = %{
-          state
-          | observations: Map.delete(state.observations, app.id),
-            prompts: Map.put(state.prompts, app.id, now)
-        }
-
-        {next_state, {:choose, app}}
-
-      app.recovery == :interactive ->
-        observation = %{app: app, count: count}
-        {%{state | observations: Map.put(state.observations, app.id, observation)}, nil}
 
       restart_allowed?(state, app.id, now) ->
         next_state = %{
@@ -120,32 +104,18 @@ defmodule Canaryd.UnresponsiveMonitor do
     end
   end
 
-  defp prompt_allowed?(state, id, now) do
-    case Map.get(state.prompts, id) do
-      nil -> true
-      last_prompt -> Duration.between(now, last_prompt) >= Duration.hours(1)
-    end
-  end
-
   defp normalize_state(state, now) do
     defaults = default_state()
     restarts = Map.get(state, :restarts, defaults.restarts)
-    prompts = Map.get(state, :prompts, defaults.prompts)
 
     recent_restarts =
       Map.filter(restarts, fn {_id, restarted_at} ->
         Duration.between(now, restarted_at) < Duration.days(1)
       end)
 
-    recent_prompts =
-      Map.filter(prompts, fn {_id, prompted_at} ->
-        Duration.between(now, prompted_at) < Duration.days(1)
-      end)
-
     %{
       observations: Map.get(state, :observations, defaults.observations),
       restarts: recent_restarts,
-      prompts: recent_prompts,
       blocked: Map.get(state, :blocked, defaults.blocked)
     }
   end

@@ -22,20 +22,6 @@ defmodule Canaryd.Notifier do
     send_notification("Mac temperature warning", message, runner)
   end
 
-  @doc "Sends a time-limited notification with Close and Restart actions."
-  def choose_app_action(process_name) do
-    choose_app_action(process_name, &run_notification_helper/2)
-  end
-
-  @doc false
-  def choose_app_action(process_name, runner) do
-    message =
-      "#{process_name} is not responding. Close or Restart can force-stop this instance. " <>
-        "macOS opens the service again when needed."
-
-    choose_action("Mac Health", message, runner)
-  end
-
   @doc "Sends thermal details in a notification with Close and Restart actions."
   def choose_thermal_action(process_name, suspect_summary) do
     choose_thermal_action(process_name, suspect_summary, &run_notification_helper/2)

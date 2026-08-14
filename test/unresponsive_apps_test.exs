@@ -57,7 +57,7 @@ defmodule Canaryd.Apps.UnresponsiveTest do
     assert Unresponsive.recovery_mode(app) == :automatic
   end
 
-  test "keeps CursorUIViewService as an interactive system service" do
+  test "keeps CursorUIViewService as an automatic system service" do
     app = %{
       activation_policy: 2,
       bundle_id: "com.apple.TextInputUI.xpc.CursorUIViewService",
@@ -66,7 +66,15 @@ defmodule Canaryd.Apps.UnresponsiveTest do
     }
 
     assert Unresponsive.eligible?(app)
-    assert Unresponsive.recovery_mode(app) == :interactive
+    assert Unresponsive.recovery_mode(app) == :automatic
+  end
+
+  test "requires the exact CursorUIViewService system identity" do
+    refute Unresponsive.eligible?(%{
+             activation_policy: 2,
+             bundle_id: "com.apple.TextInputUI.xpc.CursorUIViewService",
+             bundle_path: "/Applications/CursorUIViewService.xpc"
+           })
   end
 
   test "finds a replacement PID and ignores the stopped PID" do

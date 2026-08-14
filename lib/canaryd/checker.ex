@@ -434,15 +434,6 @@ defmodule Canaryd.Checker do
     end
   end
 
-  defp run_app_action(events, {:choose, app}) do
-    case Notifier.choose_app_action(app.name) do
-      {:ok, :restart} -> restart_selected_app(events, app)
-      {:ok, :close} -> close_selected_app(events, app)
-      {:ok, :ignore} -> ignore_selected_app(events, app)
-      {:error, reason} -> app_action_failed(events, app, reason)
-    end
-  end
-
   defp run_app_action(events, {:blocked, app}) do
     Store.log_event(events, :apps, :blocked, app_details(app))
     Notifier.notify("Mac Health", "#{app.name} is still unresponsive after an automatic restart.")
@@ -459,40 +450,6 @@ defmodule Canaryd.Checker do
       :bundle_path,
       :recovery
     ])
-  end
-
-  defp restart_selected_app(events, app) do
-    case Unresponsive.restart(app) do
-      :ok ->
-        Store.log_event(events, :apps, :restarted, app_details(app))
-        :restarted
-
-      {:error, reason} ->
-        app_action_failed(events, app, reason)
-    end
-  end
-
-  defp close_selected_app(events, app) do
-    case Unresponsive.close(app) do
-      :ok ->
-        Store.log_event(events, :apps, :closed, app_details(app))
-        :closed
-
-      {:error, reason} ->
-        app_action_failed(events, app, reason)
-    end
-  end
-
-  defp ignore_selected_app(events, app) do
-    Store.log_event(events, :apps, :ignored, app_details(app))
-    :ignored
-  end
-
-  defp app_action_failed(events, app, reason) do
-    details = Map.put(app_details(app), :reason, inspect(reason))
-    Store.log_event(events, :apps, :action_failed, details)
-    Notifier.notify("Mac Health", "The selected action for #{app.name} failed.")
-    :action_failed
   end
 
   defp record_system(state, events, sys) do

@@ -14,7 +14,7 @@ Recover a confirmed unresponsive process with the correct safety policy.
   - Explicitly allowlisted system GUI services.
   - The same unresponsive state that macOS shows in Force Quit.
   - Automatic restart with confirmation and cooldown limits.
-  - Notification and user-selected recovery for allowlisted system services.
+  - Automatic recovery for allowlisted system services.
   - Status and event history.
 - Out of scope:
   - Background daemons and helper processes that are not allowlisted.
@@ -29,7 +29,6 @@ Recover a confirmed unresponsive process with the correct safety policy.
 - `UnresponsiveAppMonitor`
   - `observations`: A map keyed by app identity.
   - `restarts`: The last automatic restart time for each app identity.
-  - `prompts`: The last interactive recovery prompt time for each app identity.
   - `blocked`: App identities that already caused a user notification.
 - `AppIdentity`
   - Use the bundle identifier when it is available.
@@ -44,9 +43,7 @@ Recover a confirmed unresponsive process with the correct safety policy.
 - A responsive or stopped app clears its pending observation.
 - Two consecutive unresponsive observations confirm a hang.
 - A confirmed hang starts an automatic restart when the cooldown permits it.
-- A confirmed allowlisted service sends an actionable notification.
-- The user can close or restart the service from the notification.
-- The user can dismiss the notification to ignore the service.
+- A confirmed allowlisted service restarts without prompting the user.
 - An app that stays unresponsive during cooldown becomes blocked.
 - A responsive or stopped app clears its blocked state.
 
@@ -54,9 +51,7 @@ Recover a confirmed unresponsive process with the correct safety policy.
 
 - An app needs two consecutive observations before a restart.
 - An app can restart at most once per hour.
-- An allowlisted service can prompt at most once per hour.
 - Restart timestamps older than 24 hours can be removed.
-- Prompt timestamps older than 24 hours can be removed.
 - The monitor must not create atoms from app names or bundle identifiers.
 
 ### Retention and Privacy
@@ -77,49 +72,47 @@ Recover a confirmed unresponsive process with the correct safety policy.
 2. Clear pending observations and stop without restart actions when the macOS interface is unavailable.
 3. Keep third-party apps with a regular activation policy.
 4. Exclude Apple bundle identifiers and app bundles under system paths by default.
-5. Include `com.apple.TextInputUI.xpc.CursorUIViewService` as an explicit interactive service.
+5. Include `com.apple.TextInputUI.xpc.CursorUIViewService` as an explicit automatic service only when its activation policy and system XPC path also match.
 6. Confirm an unresponsive process in two consecutive check rounds.
-7. Restart a confirmed third-party app automatically.
-8. Send a Notification Center notification for a confirmed interactive service.
-9. Show Close and Restart actions in the notification.
-10. Do not activate an app or show a foreground dialog.
-11. Remove the notification after 120 seconds and treat dismiss or timeout as Ignore.
-12. Send `SIGTERM` to close the current `CursorUIViewService` instance.
-13. Send `SIGKILL` if the service does not stop within the grace period.
-14. For Restart, wait up to five seconds for launchd or an XPC client to start a new PID.
-15. Report restart failure when a new PID does not appear in that period.
-16. Send `SIGTERM` to a confirmed third-party app.
-17. Send `SIGKILL` only when the same app process does not stop within the grace period.
-18. Wait for the old app PID to stop.
-19. Open the same third-party app bundle in the background.
-20. Log detection, user choice, restart, restart failure, and blocked events.
+7. Restart a confirmed third-party app or allowlisted service automatically.
+8. Do not notify the user after a successful automatic restart.
+9. Send `SIGTERM` to stop the current `CursorUIViewService` instance.
+10. Send `SIGKILL` if the service does not stop within the grace period.
+11. Wait up to five seconds for launchd or an XPC client to start a new service PID.
+12. Report and notify on restart failure when a new PID does not appear in that period.
+13. Send `SIGTERM` to a confirmed third-party app.
+14. Send `SIGKILL` only when the same app process does not stop within the grace period.
+15. Wait for the old app PID to stop.
+16. Open the same third-party app bundle in the background.
+17. Notify once when an app is confirmed unresponsive again during restart cooldown.
+18. Log detection, restart, restart failure, and blocked events.
 
 ## BDD Scenarios
 
-### BDD-01 Select a recovery action without focus loss
+### BDD-01 Restart CursorUIViewService without prompting
 
 Given:
-- A confirmed allowlisted service is not responding.
+- `CursorUIViewService` matches the allowlisted identity and system XPC path.
+- It is unresponsive in two consecutive check rounds.
 
 When:
-- canaryd asks the user to select a recovery action.
+- canaryd evaluates the second observation.
 
 Then:
-- Notification Center shows Restart and Close.
-- canaryd does not activate an app.
-- canaryd does not show a foreground dialog.
-- Dismiss or timeout returns Ignore.
+- canaryd automatically stops the old PID.
+- canaryd waits for a replacement PID.
+- a successful restart does not send a notification.
 
 Test Plan:
-- Lowest useful level: unit test for the notification command contract.
-- First failing test: the notifier sends an actionable notification command.
-- Follow-up test: the native helper compiles for macOS.
+- Lowest useful level: unit tests for service allowlisting and monitor actions.
+- First failing test: the second service observation returns an automatic restart action.
+- Follow-up test: interactive app recovery references are absent from production code.
 
 Acceptance Evidence:
-- `Canaryd.NotifierTest` actionable notification tests.
-- Swift helper compile check.
+- `Canaryd.Apps.UnresponsiveTest` allowlist and recovery-mode test.
+- `Canaryd.UnresponsiveMonitorTest` automatic service restart test.
 
-Automatic termination can discard unsaved data. Confirmation and cooldown limits reduce this risk.
+Automatic termination can discard unsaved data. Exact service identity checks, confirmation, and cooldown limits reduce this risk.
 
 ## Search
 
@@ -142,4 +135,4 @@ Automatic termination can discard unsaved data. Confirmation and cooldown limits
 
 | Scenario | Status | Evidence | Notes |
 | --- | --- | --- | --- |
-| BDD-01 | passed | `Canaryd.NotifierTest`, `Canaryd.NotificationHelperTest`, Swift type check, signed helper install, live notification run | The live run returned Ignore after dismiss or timeout. |
+| BDD-01 | passed | `Canaryd.Apps.UnresponsiveTest`, `Canaryd.UnresponsiveMonitorTest`, full test suite, local production-path restart simulation | The isolated simulation replaced PID 21447 with PID 21449 and returned `:ok` without touching the real service. |

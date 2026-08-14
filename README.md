@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="#notifications">Notifications</a> ·
   <a href="#install">Install</a> ·
   <a href="#usage">Usage</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -53,6 +54,43 @@ idle Simulators, and thermal pressure.
 
 > The screenshot contains example values. Process names, temperatures, and
 > events come from your Mac.
+
+## Notifications
+
+Canaryd uses a native, signed `Canaryd.app` helper for Notification Center.
+These are real macOS notification captures generated with representative mock
+data. Successful background recovery stays quiet unless the recovery policy
+explicitly reports a result.
+
+### Thermal pressure
+
+| First hot round | Close or Restart after confirmation |
+| --- | --- |
+| <img src="./docs/images/notifications/thermal-warning.png" width="400" alt="Persistent high-temperature warning"> | <img src="./docs/images/notifications/thermal-action.png" width="400" alt="High-temperature notification with Close and Restart actions"> |
+
+| Informational fallback | Selected action failed |
+| --- | --- |
+| <img src="./docs/images/notifications/thermal-warning-fallback.png" width="400" alt="Fallback high-temperature warning"> | <img src="./docs/images/notifications/thermal-action-failed.png" width="400" alt="Failed thermal action notification"> |
+
+### Automatic recovery results
+
+| Idle app closed | Idle app could not close |
+| --- | --- |
+| <img src="./docs/images/notifications/idle-memory-closed.png" width="400" alt="Idle high-memory app closed notification"> | <img src="./docs/images/notifications/idle-memory-close-failed.png" width="400" alt="Idle high-memory app close failed notification"> |
+
+| Simulators shut down | Simulator shutdown failed |
+| --- | --- |
+| <img src="./docs/images/notifications/simulators-shut-down.png" width="400" alt="Idle Simulators shut down notification"> | <img src="./docs/images/notifications/simulators-shutdown-failed.png" width="400" alt="Idle Simulator shutdown failed notification"> |
+
+### Attention required
+
+| App restart failed | App hung again during cooldown |
+| --- | --- |
+| <img src="./docs/images/notifications/app-restart-failed.png" width="400" alt="Unresponsive app restart failed notification"> | <img src="./docs/images/notifications/app-still-unresponsive.png" width="400" alt="App still unresponsive after automatic restart notification"> |
+
+| System degraded | CleanClip recovery blocked |
+| --- | --- |
+| <img src="./docs/images/notifications/system-degraded.png" width="400" alt="System degraded notification"> | <img src="./docs/images/notifications/cleanclip-restart-failed.png" width="400" alt="CleanClip automatic restart failed notification"> |
 
 ## Install
 
@@ -292,10 +330,10 @@ runtime. If a future macOS release removes it, the scan becomes unavailable and
 Canaryd does not stop an app.
 
 `CursorUIViewService` is an explicitly supported Apple text-input service.
-After two failed rounds, Canaryd sends a 120-second notification with Close and
-Restart actions. Dismissal or timeout means Ignore. Close or Restart can
-force-stop the current instance. macOS starts a new instance through launchd or
-an XPC client when it is needed. The notification has a one-hour cooldown.
+After two failed rounds, Canaryd quietly stops the current instance and waits
+for launchd or an XPC client to start a new one. Successful recovery does not
+send a notification. A failed restart or another confirmed hang during the
+one-hour restart cooldown still sends a warning.
 
 ### Idle Simulator shutdown
 
