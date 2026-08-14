@@ -216,15 +216,16 @@ Add that line to the shell profile to keep the setting.
 canaryd status
 ```
 
-The first command installs two launchd agents:
+The first command installs one launchd agent:
 
 | Agent | Interval | Work |
 | --- | ---: | --- |
-| Thermal check | 1 minute | Read temperature and find high-CPU processes |
-| Full health check | 5 minutes | Check the system, GUI apps, idle memory, Simulators, and CleanClip |
+| Full health check | 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, and CleanClip |
 
-Every command verifies these agents. If an agent is missing, Canaryd creates it
-again. You do not need to manage plist files.
+Every command verifies this agent. If it is missing, Canaryd creates it again.
+Upgrades remove the obsolete one-minute thermal agent. You do not need to
+manage plist files. macOS may keep the removed item visible in Background
+Items until the next login even though it no longer runs.
 
 ## Usage
 
@@ -234,9 +235,9 @@ again. You do not need to manage plist files.
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, or `apps` |
-| `canaryd install` | Reinstall and load both launchd agents |
-| `canaryd uninstall` | Remove both launchd agents and the notification helper |
-| `canaryd --version` | Show the installed version without changing launchd agents |
+| `canaryd install` | Reinstall and load the launchd agent |
+| `canaryd uninstall` | Remove the launchd agent and the notification helper |
+| `canaryd --version` | Show the installed version without changing the launchd agent |
 
 Examples:
 
@@ -380,7 +381,7 @@ contain launchd output.
 
 ## Uninstall
 
-Remove the launchd agents and the notification helper:
+Remove the launchd agent and the notification helper:
 
 ```sh
 canaryd uninstall

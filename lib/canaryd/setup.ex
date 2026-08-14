@@ -6,12 +6,14 @@ defmodule Canaryd.Setup do
   """
 
   @label "com.thaddeusjiang.canaryd"
-  @thermal_label "com.thaddeusjiang.canaryd.thermal"
+  @obsolete_agent_labels ["com.thaddeusjiang.canaryd.thermal"]
 
   alias Canaryd.{Duration, NotificationHelper, Paths}
 
   def label, do: @label
-  def thermal_label, do: @thermal_label
+
+  @doc false
+  def obsolete_agent_labels, do: @obsolete_agent_labels
 
   @doc false
   def agent_specs(escript_path) do
@@ -21,12 +23,6 @@ defmodule Canaryd.Setup do
         command: "check",
         interval: Duration.minutes(5),
         escript_path: escript_path
-      },
-      %{
-        label: @thermal_label,
-        command: "thermal-check",
-        interval: Duration.minutes(1),
-        escript_path: escript_path
       }
     ]
   end
@@ -35,7 +31,8 @@ defmodule Canaryd.Setup do
   def ensure_installed do
     agents = configured_agents()
 
-    with :ok <- NotificationHelper.ensure_installed() do
+    with :ok <- NotificationHelper.ensure_installed(),
+         :ok <- remove_obsolete_agents() do
       cond do
         Enum.any?(agents, &(not File.exists?(plist_path(&1.label)))) ->
           install_agents(agents)
@@ -52,7 +49,8 @@ defmodule Canaryd.Setup do
   def install do
     agents = configured_agents()
 
-    with :ok <- NotificationHelper.ensure_installed() do
+    with :ok <- NotificationHelper.ensure_installed(),
+         :ok <- remove_obsolete_agents() do
       install_agents(agents)
     end
   end
@@ -69,12 +67,25 @@ defmodule Canaryd.Setup do
   end
 
   def uninstall do
-    Enum.each(configured_agents(), fn agent ->
-      if loaded?(agent.label), do: bootout(agent.label)
-      File.rm(plist_path(agent.label))
-    end)
+    configured_agents()
+    |> Enum.map(& &1.label)
+    |> Kernel.++(@obsolete_agent_labels)
+    |> remove_agents()
 
     NotificationHelper.remove()
+    :ok
+  end
+
+  defp remove_obsolete_agents do
+    remove_agents(@obsolete_agent_labels)
+  end
+
+  defp remove_agents(labels) do
+    Enum.each(labels, fn label ->
+      if loaded?(label), do: bootout(label)
+      File.rm(plist_path(label))
+    end)
+
     :ok
   end
 

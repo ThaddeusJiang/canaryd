@@ -13,14 +13,9 @@ defmodule Canaryd.SetupTest do
              "/Users/test/.mix/escripts/canaryd"
   end
 
-  test "keeps full checks at five minutes and thermal checks at one minute" do
+  test "runs one full health check every five minutes" do
     assert [
-             %{label: "com.thaddeusjiang.canaryd", command: "check", interval: 300_000},
-             %{
-               label: "com.thaddeusjiang.canaryd.thermal",
-               command: "thermal-check",
-               interval: 60_000
-             }
+             %{label: "com.thaddeusjiang.canaryd", command: "check", interval: 300_000}
            ] = Setup.agent_specs("/Applications/canaryd")
   end
 
@@ -29,5 +24,9 @@ defmodule Canaryd.SetupTest do
 
     assert Setup.agent_plist(agent) =~
              ~r/<key>StartInterval<\/key>\s+<integer>300<\/integer>/
+  end
+
+  test "marks the dedicated thermal agent as obsolete" do
+    assert Setup.obsolete_agent_labels() == ["com.thaddeusjiang.canaryd.thermal"]
   end
 end

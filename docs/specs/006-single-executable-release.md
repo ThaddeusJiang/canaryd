@@ -37,7 +37,7 @@ Do not require the user to install Erlang or Elixir.
 1. Start the CLI with the arguments from the Burrito wrapper.
 2. Use the Burrito wrapper path when Canaryd writes launchd agent files.
 3. Keep the escript path behavior for an escript installation.
-4. Run `canaryd --version` without installing or loading launchd agents.
+4. Run `canaryd --version` without installing or loading the launchd agent.
 5. Include ERTS and all `priv` resources in each executable.
 6. Build each release from an existing semantic version tag.
 7. Require the tag version to match the Mix project version.
@@ -134,7 +134,7 @@ Given:
 - The executable runs with the current user's `HOME` environment variable.
 
 When:
-- Canaryd installs its notification helper and launchd agents.
+- Canaryd installs its notification helper and launchd agent.
 - Canaryd reads or writes its state and CleanClip history paths.
 
 Then:
