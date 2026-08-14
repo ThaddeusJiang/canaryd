@@ -88,28 +88,41 @@ defmodule Canaryd.Apps.Unresponsive do
   @doc false
   def recovery_mode(_app), do: :automatic
 
+  @doc false
+  def silent_recovery?(app), do: cursor_ui_service?(app)
+
   @doc "Stops the unresponsive process and starts or waits for its replacement."
-  def restart(%{
-        recovery: :automatic,
-        activation_policy: 2,
-        bundle_id: @cursor_ui_service,
-        bundle_path: @cursor_ui_path,
-        name: name,
-        pid: pid
-      })
-      when is_integer(pid) and pid > 0 do
-    with :ok <- stop_process(pid),
-         {:ok, _new_pid} <- wait_for_replacement(name, pid, 25) do
+  def restart(app) do
+    restart(app, &run_command/2, &Process.sleep/1)
+  end
+
+  @doc false
+  def restart(
+        %{
+          recovery: :automatic,
+          activation_policy: 2,
+          bundle_id: @cursor_ui_service,
+          bundle_path: @cursor_ui_path,
+          name: name,
+          pid: pid
+        },
+        runner,
+        sleeper
+      )
+      when is_integer(pid) and pid > 0 and is_function(runner, 2) and is_function(sleeper, 1) do
+    with :ok <- stop_process(pid, runner, sleeper),
+         :ok <- kickstart_cursor_ui_service(runner),
+         {:ok, _new_pid} <- wait_for_replacement(name, pid, 25, runner, sleeper) do
       :ok
     end
   end
 
-  def restart(%{pid: pid, bundle_path: bundle_path})
-      when is_integer(pid) and pid > 0 and is_binary(bundle_path) do
+  def restart(%{pid: pid, bundle_path: bundle_path}, runner, sleeper)
+      when is_integer(pid) and pid > 0 and is_binary(bundle_path) and is_function(runner, 2) and
+             is_function(sleeper, 1) do
     with true <- valid_app_bundle_path?(bundle_path),
-         :ok <- stop_process(pid),
-         {_output, 0} <-
-           System.cmd("open", ["-g", bundle_path], stderr_to_stdout: true) do
+         :ok <- stop_process(pid, runner, sleeper),
+         {_output, 0} <- runner.("open", ["-g", bundle_path]) do
       :ok
     else
       false -> {:error, :invalid_bundle_path}
@@ -120,11 +133,11 @@ defmodule Canaryd.Apps.Unresponsive do
     _ -> {:error, :restart_failed}
   end
 
-  def restart(_app), do: {:error, :invalid_app}
+  def restart(_app, _runner, _sleeper), do: {:error, :invalid_app}
 
   @doc "Stops the current process without opening a replacement app."
   def close(%{pid: pid}) when is_integer(pid) and pid > 0 do
-    stop_process(pid)
+    stop_process(pid, &run_command/2, &Process.sleep/1)
   end
 
   def close(_app), do: {:error, :invalid_app}
@@ -223,13 +236,13 @@ defmodule Canaryd.Apps.Unresponsive do
 
   defp cursor_ui_service?(_app), do: false
 
-  defp stop_process(pid) do
-    case System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true) do
+  defp stop_process(pid, runner, sleeper) do
+    case runner.("kill", ["-TERM", Integer.to_string(pid)]) do
       {_output, 0} ->
-        wait_for_stop(pid, 10)
+        wait_for_stop(pid, 10, runner, sleeper)
 
       {output, status} ->
-        if process_alive?(pid) do
+        if process_alive?(pid, runner) do
           {:error, {:term_failed, status, String.trim(output)}}
         else
           :ok
@@ -237,13 +250,13 @@ defmodule Canaryd.Apps.Unresponsive do
     end
   end
 
-  defp wait_for_stop(pid, 0) do
-    case System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true) do
+  defp wait_for_stop(pid, 0, runner, sleeper) do
+    case runner.("kill", ["-KILL", Integer.to_string(pid)]) do
       {_output, 0} ->
-        wait_after_kill(pid, 10)
+        wait_after_kill(pid, 10, runner, sleeper)
 
       {output, status} ->
-        if process_alive?(pid) do
+        if process_alive?(pid, runner) do
           {:error, {:kill_failed, status, String.trim(output)}}
         else
           :ok
@@ -251,46 +264,75 @@ defmodule Canaryd.Apps.Unresponsive do
     end
   end
 
-  defp wait_for_stop(pid, attempts) do
-    if process_alive?(pid) do
-      Process.sleep(@termination_grace)
-      wait_for_stop(pid, attempts - 1)
+  defp wait_for_stop(pid, attempts, runner, sleeper) do
+    if process_alive?(pid, runner) do
+      sleeper.(@termination_grace)
+      wait_for_stop(pid, attempts - 1, runner, sleeper)
     else
       :ok
     end
   end
 
-  defp process_alive?(pid) do
-    case System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true) do
+  defp process_alive?(pid, runner) do
+    case runner.("kill", ["-0", Integer.to_string(pid)]) do
       {_output, 0} -> true
       _ -> false
     end
   end
 
-  defp wait_after_kill(_pid, 0), do: {:error, :process_did_not_stop}
+  defp wait_after_kill(_pid, 0, _runner, _sleeper), do: {:error, :process_did_not_stop}
 
-  defp wait_after_kill(pid, attempts) do
-    if process_alive?(pid) do
-      Process.sleep(@termination_grace)
-      wait_after_kill(pid, attempts - 1)
+  defp wait_after_kill(pid, attempts, runner, sleeper) do
+    if process_alive?(pid, runner) do
+      sleeper.(@termination_grace)
+      wait_after_kill(pid, attempts - 1, runner, sleeper)
     else
       :ok
     end
   end
 
-  defp wait_for_replacement(_name, _old_pid, 0), do: {:error, :replacement_not_started}
+  defp kickstart_cursor_ui_service(runner) do
+    with {:ok, uid} <- current_uid(runner),
+         target = "user/#{uid}/#{@cursor_ui_service}",
+         {_output, 0} <- runner.("launchctl", ["kickstart", target]) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+      {output, status} -> {:error, {:kickstart_failed, status, String.trim(output)}}
+    end
+  end
 
-  defp wait_for_replacement(name, old_pid, attempts) do
-    case System.cmd("pgrep", ["-x", name], stderr_to_stdout: true) do
+  defp current_uid(runner) do
+    case runner.("id", ["-u"]) do
+      {output, 0} ->
+        case Integer.parse(String.trim(output)) do
+          {uid, ""} when uid >= 0 -> {:ok, uid}
+          _ -> {:error, :invalid_uid}
+        end
+
+      {output, status} ->
+        {:error, {:uid_lookup_failed, status, String.trim(output)}}
+    end
+  end
+
+  defp wait_for_replacement(_name, _old_pid, 0, _runner, _sleeper),
+    do: {:error, :replacement_not_started}
+
+  defp wait_for_replacement(name, old_pid, attempts, runner, sleeper) do
+    case runner.("pgrep", ["-x", name]) do
       {output, _status} ->
         case replacement_pid(output, old_pid) do
           nil ->
-            Process.sleep(@termination_grace)
-            wait_for_replacement(name, old_pid, attempts - 1)
+            sleeper.(@termination_grace)
+            wait_for_replacement(name, old_pid, attempts - 1, runner, sleeper)
 
           new_pid ->
             {:ok, new_pid}
         end
     end
+  end
+
+  defp run_command(command, args) do
+    System.cmd(command, args, stderr_to_stdout: true)
   end
 end

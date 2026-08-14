@@ -43,7 +43,7 @@ Recover a confirmed unresponsive process with the correct safety policy.
 - A responsive or stopped app clears its pending observation.
 - Two consecutive unresponsive observations confirm a hang.
 - A confirmed hang starts an automatic restart when the cooldown permits it.
-- A confirmed allowlisted service restarts without prompting the user.
+- A confirmed allowlisted service restarts without prompting or notifying the user.
 - An app that stays unresponsive during cooldown becomes blocked.
 - A responsive or stopped app clears its blocked state.
 
@@ -78,14 +78,15 @@ Recover a confirmed unresponsive process with the correct safety policy.
 8. Do not notify the user after a successful automatic restart.
 9. Send `SIGTERM` to stop the current `CursorUIViewService` instance.
 10. Send `SIGKILL` if the service does not stop within the grace period.
-11. Wait up to five seconds for launchd or an XPC client to start a new service PID.
-12. Report and notify on restart failure when a new PID does not appear in that period.
-13. Send `SIGTERM` to a confirmed third-party app.
-14. Send `SIGKILL` only when the same app process does not stop within the grace period.
-15. Wait for the old app PID to stop.
-16. Open the same third-party app bundle in the background.
-17. Notify once when an app is confirmed unresponsive again during restart cooldown.
-18. Log detection, restart, restart failure, and blocked events.
+11. Ask launchd to start the exact service job in the current user domain after the old PID stops.
+12. Wait up to five seconds for the replacement service PID.
+13. Log a `CursorUIViewService` restart failure without notifying the user.
+14. Send `SIGTERM` to a confirmed third-party app.
+15. Send `SIGKILL` only when the same app process does not stop within the grace period.
+16. Wait for the old app PID to stop.
+17. Open the same third-party app bundle in the background.
+18. Notify once when a third-party app is confirmed unresponsive again during restart cooldown.
+19. Log detection, restart, restart failure, and blocked events.
 
 ## BDD Scenarios
 
@@ -100,17 +101,19 @@ When:
 
 Then:
 - canaryd automatically stops the old PID.
+- canaryd requests the exact launchd job in the current user domain.
 - canaryd waits for a replacement PID.
-- a successful restart does not send a notification.
+- service recovery never sends a notification, including when restart confirmation fails.
 
 Test Plan:
-- Lowest useful level: unit tests for service allowlisting and monitor actions.
-- First failing test: the second service observation returns an automatic restart action.
-- Follow-up test: interactive app recovery references are absent from production code.
+- Lowest useful level: unit tests for the service command sequence, allowlisting, monitor actions, and notification policy.
+- First failing test: service restart requests `launchctl kickstart` for the current user after the old PID stops.
+- Follow-up tests: the replacement PID is accepted and service recovery is marked silent.
 
 Acceptance Evidence:
-- `Canaryd.Apps.UnresponsiveTest` allowlist and recovery-mode test.
+- `Canaryd.Apps.UnresponsiveTest` launchd restart, allowlist, recovery-mode, and notification-policy tests.
 - `Canaryd.UnresponsiveMonitorTest` automatic service restart test.
+- Local production-path restart that replaces the real service PID without a notification.
 
 Automatic termination can discard unsaved data. Exact service identity checks, confirmation, and cooldown limits reduce this risk.
 
@@ -135,4 +138,4 @@ Automatic termination can discard unsaved data. Exact service identity checks, c
 
 | Scenario | Status | Evidence | Notes |
 | --- | --- | --- | --- |
-| BDD-01 | passed | `Canaryd.Apps.UnresponsiveTest`, `Canaryd.UnresponsiveMonitorTest`, full test suite, local production-path restart simulation | The isolated simulation replaced PID 21447 with PID 21449 and returned `:ok` without touching the real service. |
+| BDD-01 | passed | `Canaryd.Apps.UnresponsiveTest`, `Canaryd.UnresponsiveMonitorTest`, 105-test full suite, local production-path restart, installed-binary checksum and launchd checks | The real service changed from PID 7103 to PID 8007 and returned `:ok`; the exact service identity is covered by the silent recovery policy. |
