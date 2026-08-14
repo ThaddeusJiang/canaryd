@@ -129,7 +129,7 @@ defmodule Canaryd.CLI do
   defp dispatch(["install"]) do
     case Setup.install() do
       :ok ->
-        IO.puts("launchd agents installed (#{Setup.label()}, #{Setup.thermal_label()})")
+        IO.puts("launchd agent installed (#{Setup.label()})")
 
       {:error, err} ->
         IO.puts("install failed: #{err}")
@@ -138,7 +138,7 @@ defmodule Canaryd.CLI do
 
   defp dispatch(["uninstall"]) do
     Setup.uninstall()
-    IO.puts("launchd agents removed")
+    IO.puts("launchd agent removed")
   end
 
   defp dispatch(_argv) do
@@ -147,11 +147,11 @@ defmodule Canaryd.CLI do
 
     usage:
       canaryd check              run one check round (launchd does this every 5 min)
-      canaryd thermal-check      run one thermal check (launchd does this every 1 min)
+      canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, apps)
-      canaryd install            (re)install the launchd agents (usually automatic)
-      canaryd uninstall          remove the launchd agents
+      canaryd install            (re)install the launchd agent (usually automatic)
+      canaryd uninstall          remove the launchd agent
       canaryd --version          show the installed version
     """)
   end

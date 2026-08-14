@@ -69,9 +69,10 @@ Ask the user to close, restart, or ignore one safe app candidate.
 26. Restart by closing the selected process and opening the same app bundle.
 27. Log warning delivery, choice, success, and failure.
 28. Clear pending observations when thermal pressure ends.
-29. Run a dedicated thermal check every minute.
-30. Keep the full health check interval at five minutes.
-31. Use the shared store lock to prevent concurrent check rounds.
+29. Run one full health check, including thermal monitoring, every five minutes.
+30. Install one launchd agent for scheduled checks.
+31. During an upgrade, unload and remove the obsolete dedicated thermal agent.
+32. Use the shared store lock to prevent concurrent check rounds.
 
 CPU usage is correlation evidence.
 It is not proof of exact heat contribution.
@@ -127,6 +128,28 @@ Then:
 - canaryd reports the process as a suspect.
 - canaryd does not offer a close or restart action for it.
 
+### BDD-04 Run one five-minute background schedule
+
+Given:
+- canaryd may have the current full-check agent and the obsolete dedicated thermal agent installed.
+
+When:
+- canaryd installs or self-heals its launchd configuration.
+
+Then:
+- canaryd keeps one full-check agent with a five-minute interval.
+- the full check includes thermal monitoring.
+- canaryd unloads and removes the obsolete dedicated thermal agent.
+
+Test Plan:
+- Lowest useful level: setup unit tests plus a local launchd installation check.
+- First failing test: `Canaryd.Setup.agent_specs/1` returns only the five-minute full-check agent.
+- Follow-up test: setup exposes the obsolete thermal label for migration cleanup.
+
+Acceptance Evidence:
+- `Canaryd.SetupTest` schedule and migration-policy tests.
+- Local launchd output showing only `com.thaddeusjiang.canaryd` loaded at a 300-second interval.
+
 ## Cross-Spec Links
 
 - [001 Unresponsive App Recovery](./001-unresponsive-app-recovery.md)
@@ -134,9 +157,10 @@ Then:
 
 ## Relationships
 
-- `Canaryd.Setup` installs the one-minute thermal agent and the five-minute full-check agent.
-- `Canaryd.Checker.run_thermal/0` runs only the system and thermal process checks.
-- `Canaryd.Store` prevents two agents from changing monitor state at the same time.
+- `Canaryd.Setup` installs one five-minute full-check agent and removes the obsolete thermal agent.
+- `Canaryd.Checker.run/0` includes system and thermal process checks in every scheduled round.
+- `Canaryd.Checker.run_thermal/0` remains available for a manual thermal-only check.
+- `Canaryd.Store` prevents concurrent manual and scheduled check rounds from changing state together.
 
 ## Acceptance Record
 
@@ -145,3 +169,4 @@ Then:
 | BDD-01 | passed | `Canaryd.SystemThermalTest`, `Canaryd.NotifierTest`, `Canaryd.NotificationHelperTest`, Swift type check, signed helper install, live persistent warning run | Available temperatures use `°C`. Unavailable battery temperature is omitted. The warning had no removal event after 35 seconds. The action notification returned Ignore after dismiss or timeout. |
 | BDD-02 | passed | `Canaryd.ThermalMonitorTest` full test run | Pending observations clear after heat ends. |
 | BDD-03 | passed | `Canaryd.ThermalMonitorTest` full test run | Protected processes do not get actions. |
+| BDD-04 | passed | `Canaryd.SetupTest`, 106-test full suite, installed-binary checksum, local launchctl and plist checks, live full-check output | One 300-second full-check agent remains and includes thermal readings. macOS may retain the removed thermal item as a display-only Background Task Management cache entry until the next login. |

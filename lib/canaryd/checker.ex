@@ -429,15 +429,31 @@ defmodule Canaryd.Checker do
       {:error, reason} ->
         details = Map.put(app_details(app), :reason, inspect(reason))
         Store.log_event(events, :apps, :restart_failed, details)
-        Notifier.notify("Mac Health", "#{app.name} was unresponsive and could not restart.")
+
+        notify_app_recovery_failure(
+          app,
+          "#{app.name} was unresponsive and could not restart."
+        )
+
         :restart_failed
     end
   end
 
   defp run_app_action(events, {:blocked, app}) do
     Store.log_event(events, :apps, :blocked, app_details(app))
-    Notifier.notify("Mac Health", "#{app.name} is still unresponsive after an automatic restart.")
+
+    notify_app_recovery_failure(
+      app,
+      "#{app.name} is still unresponsive after an automatic restart."
+    )
+
     :blocked
+  end
+
+  defp notify_app_recovery_failure(app, message) do
+    unless Unresponsive.silent_recovery?(app) do
+      Notifier.notify("Mac Health", message)
+    end
   end
 
   defp app_details(app) do

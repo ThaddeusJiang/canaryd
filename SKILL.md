@@ -1,6 +1,6 @@
 ---
 name: canaryd
-description: Install or update Canaryd from its official GitHub Release on macOS, configure its required tools, register its launchd agents, and verify the result. Use when a user asks to install, update, set up, or repair Canaryd.
+description: Install or update Canaryd from its official GitHub Release on macOS, configure its required tools, register its launchd agent, and verify the result. Use when a user asks to install, update, set up, or repair Canaryd.
 ---
 
 # Install or update Canaryd
@@ -91,18 +91,18 @@ Do not change another shell profile.
 
 ## Register and verify Canaryd
 
-Rewrite and load both launchd agents with the installed executable:
+Rewrite and load the launchd agent with the installed executable:
 
 ```sh
 "$HOME/.local/bin/canaryd" --version
 "$HOME/.local/bin/canaryd" install
 "$HOME/.local/bin/canaryd" status
 launchctl print "gui/$(id -u)/com.thaddeusjiang.canaryd"
-launchctl print "gui/$(id -u)/com.thaddeusjiang.canaryd.thermal"
 ```
 
-Confirm that both launchd commands succeed. Confirm that `canaryd status`
-prints the current health snapshot.
+Confirm that the launchd command succeeds. Confirm that the obsolete
+`com.thaddeusjiang.canaryd.thermal` agent is not loaded. Confirm that
+`canaryd status` prints the current health snapshot.
 
 Report:
 
@@ -110,7 +110,7 @@ Report:
 - The installed Canaryd version.
 - The Mac architecture and installed `macmon` version, when applicable.
 - The result of `canaryd status`.
-- Whether both launchd agents are loaded.
+- Whether the launchd agent is loaded and the obsolete thermal agent is absent.
 - Any user action that is still required.
 - Tell the user to run this Skill again to upgrade to a newer stable release.
 
