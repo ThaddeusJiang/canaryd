@@ -34,38 +34,63 @@ defmodule Canaryd.PasteboardTest do
   }
   """
 
-  test "restores every saved type when the probe marker is unchanged" do
+  setup do
+    root =
+      Path.join(System.tmp_dir!(), "canaryd-pasteboard-#{System.unique_integer([:positive])}")
+
+    text_path = Path.join(root, "text")
+    custom_path = Path.join(root, "custom")
+
+    File.mkdir_p!(root)
+    File.write!(text_path, "replayed text")
+    File.write!(custom_path, "replayed custom data")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    %{contents: [{"public.utf8-plain-text", text_path}, {"com.canaryd.test", custom_path}]}
+  end
+
+  test "replays every stored type and restores the previous pasteboard item", %{
+    contents: contents
+  } do
     pasteboard_name = unique_pasteboard_name()
     write_item(pasteboard_name, "original text", "original custom data")
 
-    assert Pasteboard.probe("probe marker", Duration.milliseconds(10),
-             pasteboard_name: pasteboard_name
-           ) == :ok
+    replay =
+      Task.async(fn ->
+        Pasteboard.replay(contents, Duration.milliseconds(500), pasteboard_name: pasteboard_name)
+      end)
 
+    assert eventually(fn ->
+             read_item(pasteboard_name) == "replayed text\nreplayed custom data"
+           end)
+
+    assert Task.await(replay) == :ok
     assert read_item(pasteboard_name) == "original text\noriginal custom data"
   end
 
-  test "keeps newer content when another writer changes the pasteboard" do
+  test "keeps newer content when another writer changes the pasteboard", %{contents: contents} do
     pasteboard_name = unique_pasteboard_name()
-    marker = "probe marker"
     write_item(pasteboard_name, "original text", "original custom data")
 
-    probe =
+    replay =
       Task.async(fn ->
-        Pasteboard.probe(marker, Duration.milliseconds(500), pasteboard_name: pasteboard_name)
+        Pasteboard.replay(contents, Duration.milliseconds(500), pasteboard_name: pasteboard_name)
       end)
 
-    assert eventually(fn -> read_item(pasteboard_name) == marker end)
+    assert eventually(fn ->
+             read_item(pasteboard_name) == "replayed text\nreplayed custom data"
+           end)
+
     write_item(pasteboard_name, "new text", "new custom data")
 
-    assert Task.await(probe) == :ok
+    assert Task.await(replay) == :ok
     assert read_item(pasteboard_name) == "new text\nnew custom data"
   end
 
-  test "returns a failure when the pasteboard command fails" do
+  test "returns a failure when the pasteboard command fails", %{contents: contents} do
     runner = fn _command, _args, _options -> {"command failed", 1} end
 
-    assert Pasteboard.probe("probe marker", Duration.milliseconds(10), runner: runner) ==
+    assert Pasteboard.replay(contents, Duration.milliseconds(10), runner: runner) ==
              {:error, :pasteboard_transaction_failed}
   end
 

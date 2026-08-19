@@ -261,7 +261,7 @@ app.
 | Idle high memory | Aggregate app RSS and CPU while the user is away | Confirm three times, then request a graceful close |
 | Idle Simulator | Combine whole-Mac inactivity with CoreSimulator device age | Confirm three times, then shut down the exact booted device |
 | CleanClip process | Check the process with `pgrep` | Restart it in the background when it is missing |
-| CleanClip function | Write a reversible clipboard marker and verify a new history entry | Restore the clipboard, then restart CleanClip after a failed probe |
+| CleanClip function | Replay the latest real history item and verify duplicate content appears | Restore the clipboard, then restart CleanClip after a failed probe |
 | System pressure | Read thermal throttling, load, and memory pressure | Warn after three consecutive full checks |
 
 ### Safety rules
@@ -353,9 +353,11 @@ batched Notification Center message.
 
 ### CleanClip recovery
 
-The functional probe saves every pasteboard item and data type. It restores the
-snapshot only when no newer pasteboard write occurred. A user copy during the
-probe always wins.
+The functional probe replays the latest real CleanClip history item instead of
+creating synthetic content. CleanClip may add a duplicate row or increase an
+existing item's copy count. Canaryd saves every current pasteboard item and data
+type, then restores the snapshot only when no newer pasteboard write occurred.
+A user copy during the probe always wins.
 
 A probe failure causes a quiet restart with a one-hour cooldown. Three
 consecutive failures during the cooldown set the target to `blocked` and send a

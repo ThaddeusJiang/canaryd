@@ -17,6 +17,11 @@ defmodule Canaryd.Paths do
   end
 
   @doc false
+  def clean_clip_store_path do
+    Path.join([home_dir(), "Library", "Application Support", "CleanClip", "Storage.sqlite"])
+  end
+
+  @doc false
   def clean_clip_history_dir do
     Path.join([
       home_dir(),
