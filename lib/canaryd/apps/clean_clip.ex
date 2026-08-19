@@ -2,12 +2,11 @@ defmodule Canaryd.Apps.CleanClip do
   @moduledoc """
   CleanClip health: L2 process liveness + L3 functional clipboard probe.
 
-  The probe performs a reversible transaction: save the pasteboard, write a
-  marker, wait, restore unchanged content, and check that a new file appeared
-  in CleanClip's history directory.
+  The probe reads the latest real CleanClip history item, writes the same data
+  back to the pasteboard, and checks that CleanClip increments its copy count.
   """
 
-  alias Canaryd.{Duration, Pasteboard, Paths}
+  alias Canaryd.{CleanClipHistory, Duration, Pasteboard, Paths}
 
   @app_name "CleanClip"
   @process_pattern "/Applications/CleanClip.app/Contents/MacOS/CleanClip"
@@ -37,34 +36,22 @@ defmodule Canaryd.Apps.CleanClip do
   Run the functional probe. Returns :ok | {:fail, reason}.
   Assumes the process is already running.
   """
-  def probe do
-    before = latest_mtime()
-    marker = "canaryd-probe-#{System.unique_integer([:positive])}"
+  def probe(options \\ []) do
+    history_reader = Keyword.get(options, :history_reader, &CleanClipHistory.latest/0)
+    pasteboard_replayer = Keyword.get(options, :pasteboard_replayer, &Pasteboard.replay/2)
 
-    case Pasteboard.probe(marker, Duration.seconds(4)) do
-      :ok ->
-        probe_result(before, latest_mtime())
+    duplicate_reader =
+      Keyword.get(options, :duplicate_reader, &CleanClipHistory.duplicate_recorded?/1)
 
-      {:error, reason} ->
-        {:fail, reason}
+    with {:ok, item} <- history_reader.(),
+         :ok <- pasteboard_replayer.(item.contents, Duration.seconds(4)) do
+      duplicate_result(duplicate_reader.(item))
+    else
+      {:error, reason} -> {:fail, reason}
     end
   end
 
-  defp probe_result(_before, nil), do: {:fail, :history_dir_unreadable}
-  defp probe_result(nil, _after_mtime), do: :ok
-
-  defp probe_result(before, after_mtime) do
-    if DateTime.compare(after_mtime, before) == :gt,
-      do: :ok,
-      else: {:fail, :no_new_history_item}
-  end
-
-  # The directory's own mtime bumps whenever CleanClip adds a history item.
-  # (47k+ files inside; stat-ing each file would be slow and sampling is flaky.)
-  defp latest_mtime do
-    case File.stat(history_dir(), time: :posix) do
-      {:ok, %{mtime: mtime}} -> DateTime.from_unix!(mtime)
-      _ -> nil
-    end
-  end
+  defp duplicate_result({:ok, true}), do: :ok
+  defp duplicate_result({:ok, false}), do: {:fail, :no_duplicate_history_item}
+  defp duplicate_result({:error, reason}), do: {:fail, reason}
 end

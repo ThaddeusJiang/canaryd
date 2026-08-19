@@ -32,6 +32,15 @@ defmodule Canaryd.RuntimePathsTest do
     assert Paths.simulator_devices_dir() ==
              Path.join([runtime_home, "Library", "Developer", "CoreSimulator", "Devices"])
 
+    assert Paths.clean_clip_store_path() ==
+             Path.join([
+               runtime_home,
+               "Library",
+               "Application Support",
+               "CleanClip",
+               "Storage.sqlite"
+             ])
+
     assert CleanClip.history_dir() ==
              Path.join([
                runtime_home,

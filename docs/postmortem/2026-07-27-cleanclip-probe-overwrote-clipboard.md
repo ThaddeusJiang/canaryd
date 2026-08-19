@@ -13,14 +13,23 @@ It had no snapshot and restore transaction.
 It also had no protection for a user copy that occurred during the probe wait period.
 The test suite did not cover pasteboard preservation.
 
-## Fix applied
+## Initial fix applied
 
-The probe now uses AppKit through the macOS JavaScript automation runtime.
-It saves every pasteboard item and data type before it writes the marker.
-It records the pasteboard change count after the marker write.
-It restores the snapshot only when the change count stays unchanged.
-It keeps newer content when another writer changes the pasteboard.
-Named pasteboard tests cover restoration, concurrent writes, and command failure.
+The probe used AppKit through the macOS JavaScript automation runtime.
+It saved every pasteboard item and data type before it wrote the marker.
+It recorded the pasteboard change count after the marker write.
+It restored the snapshot only when the change count stayed unchanged.
+It kept newer content when another writer changed the pasteboard.
+Named pasteboard tests covered restoration, concurrent writes, and command failure.
+
+## Follow-up change
+
+The marker still polluted CleanClip history even when pasteboard restoration
+worked. The current probe therefore reads the latest real CleanClip history
+item and replays the same data. It accepts either a copy-count increase or a new
+row with matching primary content bytes. Legacy `canaryd-probe-*` items are not
+selected. The reversible pasteboard transaction
+and concurrent-write protection remain in place.
 
 ## What we learned
 
