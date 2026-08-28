@@ -42,9 +42,33 @@ jobs:
           otp-version: 28.1.1
 
       - name: Set up Zig for ${{ inputs.tag }}
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.16.0
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              zig_archive="zig-aarch64-macos-0.16.0.tar.xz"
+              zig_sha256="b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+              ;;
+            x86_64)
+              zig_archive="zig-x86_64-macos-0.16.0.tar.xz"
+              zig_sha256="0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
+              ;;
+            *)
+              echo "Unsupported macOS runner architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          zig_url="https://ziglang.org/download/0.16.0/${zig_archive}"
+          zig_download="${RUNNER_TEMP}/${zig_archive}"
+          zig_install_dir="${RUNNER_TEMP}/zig-0.16.0"
+
+          curl --proto '=https' --tlsv1.2 -fsSL --output "${zig_download}" "${zig_url}"
+          printf '%s  %s\n' "${zig_sha256}" "${zig_download}" | shasum -a 256 -c -
+          mkdir -p "${zig_install_dir}"
+          tar -xJf "${zig_download}" -C "${zig_install_dir}" --strip-components=1
+          printf '%s\n' "${zig_install_dir}" >> "${GITHUB_PATH}"
+          "${zig_install_dir}/zig" version
 
       - name: Validate ${{ inputs.tag }}
         shell: bash
