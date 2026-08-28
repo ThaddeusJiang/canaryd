@@ -29,10 +29,10 @@
 <!-- canaryd-video:start -->
 <p align="center">
   <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4?raw=1">
-    <img src="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.gif" width="860" alt="Canaryd recovers five common developer-Mac problems">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.gif" width="860" alt="Canaryd recovers six common developer-Mac problems">
   </a>
   <br>
-  <sub>The 16-second story reel plays inline. Click it for the MP4.</sub>
+  <sub>The 20-second story reel plays inline. Click it for the MP4.</sub>
 </p>
 <!-- canaryd-video:end -->
 
@@ -135,6 +135,25 @@ processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
   <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/idle-memory-recovery.png" width="860" alt="Canaryd confirms that a third-party app is inactive, using more than one gigabyte of memory, and safe to close gracefully">
   <br>
   <sub>Representative recovery flow based on a real high-memory candidate.</sub>
+</p>
+
+### 6. AI agents finish, but their build output stays
+
+Parallel coding agents can leave Xcode DerivedData and Cargo `target/`
+directories across projects and worktrees after their tasks are complete. The
+source may already be committed while reproducible build output continues to
+consume disk space.
+
+At 04:00 local time, Canaryd checks fixed safe roots, validates every candidate,
+and requires the complete directory tree to be untouched for seven days. It
+skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
+and skips Rust cleanup while `cargo` or `rustc` is active. It never follows
+symbolic links or removes source, Archives, Simulator data, or Cargo caches.
+
+<p align="center">
+  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/stale-build-cleanup.png" width="860" alt="Canaryd validates stale Xcode DerivedData and Cargo target directories before removing only reproducible build output">
+  <br>
+  <sub>Representative safety flow based on the maintained build-cleanup specification.</sub>
 </p>
 
 ## Status at a glance

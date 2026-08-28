@@ -21,7 +21,7 @@ defmodule Canaryd.MixProject do
       </a>
     </video>
     <br>
-    <small>Canaryd's 16-second core story reel.</small>
+    <small>Canaryd's 20-second core story reel.</small>
   </div>
   """
 

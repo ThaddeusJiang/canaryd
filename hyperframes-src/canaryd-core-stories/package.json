@@ -5,7 +5,7 @@
   "scripts": {
     "preview": "npx --yes hyperframes@0.8.17 preview",
     "check": "npx --yes hyperframes@0.8.17 check --at-transitions",
-    "snapshot": "npx --yes hyperframes@0.8.17 snapshot --at 0,0.9,1.7,3.35,6.15,8.95,11.75,14.55 --no-end --output output/review",
+    "snapshot": "npx --yes hyperframes@0.8.17 snapshot --at 0,0.9,1.7,3.35,6.15,8.95,11.75,14.55,17.45,18.8 --no-end --output output/review",
     "render": "npm run render:video && npm run render:poster && npm run render:readme",
     "render:video": "npx --yes hyperframes@0.8.17 render --quality high --strict --output output/publish/canaryd-core-stories.mp4",
     "render:poster": "ffmpeg -version | grep -q '^ffmpeg version 8\\.1 ' && ffmpeg -hide_banner -loglevel error -y -i output/publish/canaryd-core-stories.mp4 -ss 3.35 -frames:v 1 output/publish/poster.png",
