@@ -658,6 +658,182 @@
         font-size: 18px;
       }
 
+      .cleanup-window {
+        inset: 26px 0 22px;
+        border-radius: 34px;
+      }
+
+      .cleanup-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+        gap: 28px;
+        height: calc(100% - 76px);
+        padding: 34px 38px 36px;
+      }
+
+      .cleanup-label {
+        margin-bottom: 18px;
+        color: var(--muted);
+        font-size: 17px;
+        font-weight: 680;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      .cleanup-row {
+        display: grid;
+        grid-template-columns: 58px minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: center;
+        min-height: 104px;
+        margin-bottom: 16px;
+        padding: 20px 22px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 22px;
+        background: #0d151a;
+      }
+
+      .folder-icon {
+        position: relative;
+        width: 52px;
+        height: 38px;
+        border-radius: 8px;
+        background: linear-gradient(145deg, #ffd85d, var(--yellow));
+        box-shadow: 0 10px 24px rgba(255, 201, 40, 0.14);
+      }
+
+      .folder-icon::before {
+        position: absolute;
+        top: -8px;
+        left: 5px;
+        width: 24px;
+        height: 12px;
+        border-radius: 6px 6px 0 0;
+        background: #ffd85d;
+        content: "";
+      }
+
+      .cleanup-path {
+        overflow: hidden;
+        color: var(--paper);
+        font-family: monospace;
+        font-size: 19px;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .cleanup-age {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .cleanup-kind {
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 201, 40, 0.34);
+        border-radius: 999px;
+        color: var(--yellow);
+        font-size: 14px;
+        font-weight: 760;
+        letter-spacing: 0.08em;
+      }
+
+      .safety-panel {
+        padding: 24px;
+        border: 1px solid rgba(75, 211, 138, 0.22);
+        border-radius: 24px;
+        background: linear-gradient(155deg, rgba(75, 211, 138, 0.09), #0d151a 70%);
+      }
+
+      .safety-check {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+        margin-top: 22px;
+        color: #dce6e1;
+        font-size: 17px;
+        font-weight: 620;
+        line-height: 1.35;
+      }
+
+      .safety-check:first-of-type {
+        margin-top: 0;
+      }
+
+      .safety-check span:first-child {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--green);
+        color: #07100b;
+        font-size: 16px;
+        font-weight: 900;
+      }
+
+      .cleanup-result {
+        position: relative;
+        grid-column: 1 / -1;
+        height: 96px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 22px;
+        background: #0b1217;
+      }
+
+      .cleanup-result-track,
+      .cleanup-result-fill {
+        position: absolute;
+        top: 46px;
+        left: 42px;
+        height: 4px;
+        border-radius: 2px;
+      }
+
+      .cleanup-result-track {
+        right: 250px;
+        background: #344650;
+      }
+
+      .cleanup-result-fill {
+        width: 0;
+        max-width: 440px;
+        background: linear-gradient(90deg, var(--yellow), var(--green));
+      }
+
+      .cleanup-canary {
+        position: absolute;
+        top: 18px;
+        left: 30px;
+        width: 60px;
+        height: 60px;
+        border-radius: 16px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+      }
+
+      .cleanup-result-copy {
+        position: absolute;
+        top: 25px;
+        right: 30px;
+        width: 220px;
+        text-align: right;
+      }
+
+      .cleanup-result-title {
+        color: var(--green);
+        font-size: 21px;
+        font-weight: 720;
+      }
+
+      .cleanup-result-note {
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
       .outro {
         z-index: 8;
         display: grid;
@@ -708,7 +884,7 @@
       id="root"
       data-composition-id="canaryd-core-stories"
       data-start="0"
-      data-duration="16.5"
+      data-duration="19.5"
       data-width="1920"
       data-height="1080"
       data-fps="30"
@@ -902,7 +1078,70 @@
         </div>
       </section>
 
-      <section id="outro" class="clip outro" data-start="14.95" data-duration="1.55" data-track-index="1">
+      <section id="scene-six" class="clip scene" data-start="14.95" data-duration="2.75" data-track-index="1">
+        <div class="brand">
+          <img src="assets/canaryd-logo.png" alt="" />
+          <div class="brand-name">canaryd</div>
+        </div>
+        <div class="copy-block">
+          <div class="story-index">06 / Build cleanup</div>
+          <h1>The build finished.<br /><em>Its leftovers stayed.</em></h1>
+          <p class="lede">At 04:00, Canaryd removes only validated Xcode and Rust output untouched for seven days.</p>
+          <div class="fact-line">
+            <span>Whole tree stale</span>
+            <span>Build tools idle</span>
+            <span>Source protected</span>
+          </div>
+        </div>
+        <div class="visual-stage">
+          <div class="glass-panel cleanup-window">
+            <div class="window-bar">
+              <span class="traffic red"></span><span class="traffic yellow"></span><span class="traffic green"></span>
+              <span class="window-title">Representative build-output sweep</span>
+            </div>
+            <div class="cleanup-body">
+              <div>
+                <div class="cleanup-label">Validated candidates</div>
+                <div class="cleanup-row cleanup-row-one">
+                  <div class="folder-icon"></div>
+                  <div>
+                    <div class="cleanup-path">DerivedData/App-…</div>
+                    <div class="cleanup-age">Complete tree untouched for 7 days</div>
+                  </div>
+                  <div class="cleanup-kind">XCODE</div>
+                </div>
+                <div class="cleanup-row cleanup-row-two">
+                  <div class="folder-icon"></div>
+                  <div>
+                    <div class="cleanup-path">project/target/</div>
+                    <div class="cleanup-age">Cargo markers verified</div>
+                  </div>
+                  <div class="cleanup-kind">RUST</div>
+                </div>
+              </div>
+              <div>
+                <div class="cleanup-label">Safety gates</div>
+                <div class="safety-panel">
+                  <div class="safety-check safety-one"><span>✓</span><span>Xcode and Cargo are idle</span></div>
+                  <div class="safety-check safety-two"><span>✓</span><span>No symbolic links followed</span></div>
+                  <div class="safety-check safety-three"><span>✓</span><span>Source, Archives, and caches protected</span></div>
+                </div>
+              </div>
+              <div class="cleanup-result">
+                <div class="cleanup-result-track"></div>
+                <div class="cleanup-result-fill"></div>
+                <img class="cleanup-canary" src="assets/canaryd-logo.png" alt="" />
+                <div class="cleanup-result-copy">
+                  <div class="cleanup-result-title">Build output removed</div>
+                  <div class="cleanup-result-note">Local history records the result.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="outro" class="clip outro" data-start="17.7" data-duration="1.8" data-track-index="1">
         <div class="hero-lockup">
           <img class="hero-logo" src="assets/canaryd-logo.png" alt="Canaryd" />
           <div class="hero-name">canaryd</div>
@@ -957,10 +1196,23 @@
       tl.fromTo("#scene-five .quit-state", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4 }, 13.82);
       tl.to("#scene-five", { opacity: 0, duration: 0.24 }, 14.93);
 
-      tl.fromTo("#outro", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 14.95);
-      tl.fromTo("#outro .hero-logo", { opacity: 0, scale: 0.72, y: 34 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "power3.out" }, 15.02);
-      tl.fromTo("#outro .hero-name", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.38 }, 15.2);
-      tl.fromTo("#outro .hero-tagline", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.38 }, 15.34);
+      tl.fromTo("#scene-six", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 14.95);
+      tl.fromTo("#scene-six .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 15.08);
+      tl.fromTo("#scene-six .cleanup-window", { opacity: 0, x: 90, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.62, ease: "power3.out" }, 15.15);
+      tl.fromTo("#scene-six .cleanup-row-one", { opacity: 0, x: 42 }, { opacity: 1, x: 0, duration: 0.36 }, 15.62);
+      tl.fromTo("#scene-six .cleanup-row-two", { opacity: 0, x: 42 }, { opacity: 1, x: 0, duration: 0.36 }, 15.78);
+      tl.fromTo("#scene-six .safety-one", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.28 }, 16.03);
+      tl.fromTo("#scene-six .safety-two", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.28 }, 16.2);
+      tl.fromTo("#scene-six .safety-three", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.28 }, 16.37);
+      tl.fromTo("#scene-six .cleanup-result-fill", { width: 0 }, { width: 440, duration: 0.62, ease: "power2.inOut" }, 16.47);
+      tl.fromTo("#scene-six .cleanup-canary", { x: 0 }, { x: 405, duration: 0.62, ease: "power2.inOut" }, 16.47);
+      tl.fromTo("#scene-six .cleanup-result-copy", { opacity: 0, x: 18 }, { opacity: 1, x: 0, duration: 0.34 }, 16.96);
+      tl.to("#scene-six", { opacity: 0, duration: 0.24 }, 17.68);
+
+      tl.fromTo("#outro", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 17.7);
+      tl.fromTo("#outro .hero-logo", { opacity: 0, scale: 0.72, y: 34 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "power3.out" }, 17.78);
+      tl.fromTo("#outro .hero-name", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.38 }, 17.98);
+      tl.fromTo("#outro .hero-tagline", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.38 }, 18.15);
 
       window.__timelines["canaryd-core-stories"] = tl;
     </script>
