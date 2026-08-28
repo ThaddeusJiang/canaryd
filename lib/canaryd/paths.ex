@@ -17,6 +17,14 @@ defmodule Canaryd.Paths do
   end
 
   @doc false
+  def home_dir do
+    case System.get_env("HOME") do
+      home when is_binary(home) and home != "" -> Path.expand(home)
+      _home -> System.user_home!()
+    end
+  end
+
+  @doc false
   def clean_clip_store_path do
     Path.join([home_dir(), "Library", "Application Support", "CleanClip", "Storage.sqlite"])
   end
@@ -31,12 +39,5 @@ defmodule Canaryd.Paths do
       "PrivateData",
       "HistoryItemContents"
     ])
-  end
-
-  defp home_dir do
-    case System.get_env("HOME") do
-      home when is_binary(home) and home != "" -> Path.expand(home)
-      _home -> System.user_home!()
-    end
   end
 end

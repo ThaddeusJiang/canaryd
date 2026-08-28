@@ -11,4 +11,20 @@ defmodule Canaryd.CLITest do
     assert capture_io(fn -> CLI.main(["--version"], ensure_installed: ensure_installed) end) ==
              "canaryd 0.4.3\n"
   end
+
+  test "runs the build cleanup command through the CLI" do
+    build_cleanup = fn ->
+      send(self(), :build_cleanup_called)
+      {:error, :locked}
+    end
+
+    assert capture_io(fn ->
+             CLI.main(["clean"],
+               ensure_installed: fn -> :ok end,
+               build_cleanup: build_cleanup
+             )
+           end) == "another build cleanup is running, skipping\n"
+
+    assert_received :build_cleanup_called
+  end
 end
