@@ -31,7 +31,7 @@ defmodule Canaryd.Setup do
       },
       %{
         label: @build_cleanup_label,
-        command: "cleanup-builds",
+        command: "clean",
         calendar: %{hour: 4, minute: 0},
         run_at_load: false,
         escript_path: escript_path

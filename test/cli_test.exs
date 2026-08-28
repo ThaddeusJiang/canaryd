@@ -19,7 +19,7 @@ defmodule Canaryd.CLITest do
     end
 
     assert capture_io(fn ->
-             CLI.main(["cleanup-builds"],
+             CLI.main(["clean"],
                ensure_installed: fn -> :ok end,
                build_cleanup: build_cleanup
              )

@@ -28,7 +28,7 @@ defmodule Canaryd.SetupTest do
              },
              %{
                label: "com.thaddeusjiang.canaryd.build-cleanup",
-               command: "cleanup-builds",
+               command: "clean",
                calendar: %{hour: 4, minute: 0},
                run_at_load: false
              }

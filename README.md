@@ -237,7 +237,7 @@ Items until the next login even though it no longer runs.
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd cleanup-builds` | Remove stale Xcode DerivedData and Cargo target directories now |
+| `canaryd clean` | Remove stale Xcode DerivedData and Cargo target directories now |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `builds`, or `apps` |
 | `canaryd install` | Reinstall and load the launchd agents |
 | `canaryd uninstall` | Remove the launchd agents and the notification helper |

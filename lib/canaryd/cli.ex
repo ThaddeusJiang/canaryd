@@ -27,7 +27,7 @@ defmodule Canaryd.CLI do
     dispatch(argv, build_cleanup)
   end
 
-  defp dispatch(["cleanup-builds"], build_cleanup) do
+  defp dispatch(["clean"], build_cleanup) do
     case build_cleanup.() do
       {:ok, result} ->
         record_build_cleanup(result)
@@ -167,7 +167,7 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
-      canaryd cleanup-builds     remove stale Xcode and Cargo build artifacts
+      canaryd clean              remove stale Xcode and Cargo build artifacts
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, builds, apps)
       canaryd install            (re)install the launchd agents (usually automatic)
       canaryd uninstall          remove the launchd agents

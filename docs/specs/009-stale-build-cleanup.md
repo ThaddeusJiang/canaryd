@@ -14,7 +14,7 @@ archives, developer credentials, Simulator data, or active build artifacts.
   - Cargo target directories below the current user's local development
     directories.
   - A daily launchd calendar schedule at 04:00 local time.
-  - A manual `canaryd cleanup-builds` command.
+  - A manual `canaryd clean` command.
   - Local event history with counts, reclaimed bytes, and bounded skip reasons.
 - Out of scope:
   - Xcode Archives, DeviceSupport, SDKs, UserData, signing identities, and
@@ -54,7 +54,7 @@ archives, developer credentials, Simulator data, or active build artifacts.
 
 ## Behavior
 
-1. At 04:00 local time, launchd runs `canaryd cleanup-builds`.
+1. At 04:00 local time, launchd runs `canaryd clean`.
 2. Installing the calendar agent does not immediately run cleanup.
 3. Canaryd discovers validated candidates within the fixed safe roots.
 4. Canaryd checks current-user build processes and the full candidate tree
