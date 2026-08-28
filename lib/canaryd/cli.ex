@@ -2,6 +2,7 @@ defmodule Canaryd.CLI do
   @moduledoc "escript entry for checks, status, target history, setup, and version output."
 
   alias Canaryd.{
+    BuildCleanup,
     Checker,
     Duration,
     MemoryMonitor,
@@ -22,8 +23,25 @@ defmodule Canaryd.CLI do
       ensure_installed.()
     end
 
-    dispatch(argv)
+    build_cleanup = Keyword.get(options, :build_cleanup, &BuildCleanup.run/0)
+    dispatch(argv, build_cleanup)
   end
+
+  defp dispatch(["cleanup-builds"], build_cleanup) do
+    case build_cleanup.() do
+      {:ok, result} ->
+        record_build_cleanup(result)
+        print_build_cleanup(result)
+
+      {:error, :locked} ->
+        IO.puts("another build cleanup is running, skipping")
+
+      {:error, reason} ->
+        IO.puts("build cleanup failed: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch(argv, _build_cleanup), do: dispatch(argv)
 
   defp dispatch([command]) when command in ["--version", "version"] do
     IO.puts("canaryd #{Application.spec(:canaryd, :vsn)}")
@@ -129,7 +147,7 @@ defmodule Canaryd.CLI do
   defp dispatch(["install"]) do
     case Setup.install() do
       :ok ->
-        IO.puts("launchd agent installed (#{Setup.label()})")
+        IO.puts("launchd agents installed (#{Enum.join(Setup.labels(), ", ")})")
 
       {:error, err} ->
         IO.puts("install failed: #{err}")
@@ -138,7 +156,7 @@ defmodule Canaryd.CLI do
 
   defp dispatch(["uninstall"]) do
     Setup.uninstall()
-    IO.puts("launchd agent removed")
+    IO.puts("launchd agents removed")
   end
 
   defp dispatch(_argv) do
@@ -149,9 +167,10 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
-      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, apps)
-      canaryd install            (re)install the launchd agent (usually automatic)
-      canaryd uninstall          remove the launchd agent
+      canaryd cleanup-builds     remove stale Xcode and Cargo build artifacts
+      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, builds, apps)
+      canaryd install            (re)install the launchd agents (usually automatic)
+      canaryd uninstall          remove the launchd agents
       canaryd --version          show the installed version
     """)
   end
@@ -237,9 +256,44 @@ defmodule Canaryd.CLI do
   defp history_target("thermal"), do: :thermal
   defp history_target("memory"), do: :memory
   defp history_target(target) when target in ["simulator", "simulators"], do: :simulators
+  defp history_target(target) when target in ["build", "builds"], do: :builds
   defp history_target("apps"), do: :apps
   defp history_target(_target), do: :unknown
 
   defp fmt(nil), do: "-"
   defp fmt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+
+  defp record_build_cleanup(result) do
+    details = %{
+      removed: length(result.removed),
+      reclaimed_bytes: result.reclaimed_bytes,
+      failures: length(result.failures),
+      xcode_skip: result.skipped.xcode,
+      rust_skip: result.skipped.rust
+    }
+
+    Store.with_tables(fn _state, events ->
+      Store.log_event(events, :builds, :cleanup_completed, details)
+    end)
+  end
+
+  defp print_build_cleanup(result) do
+    IO.puts(
+      "build cleanup: removed #{length(result.removed)} directories, " <>
+        "reclaimed #{result.reclaimed_bytes} bytes, failures=#{length(result.failures)}"
+    )
+
+    Enum.each(result.removed, fn removed ->
+      IO.puts("  removed #{removed.kind}: #{removed.path} (#{removed.bytes} bytes)")
+    end)
+
+    Enum.each(result.skipped, fn
+      {_kind, nil} -> :ok
+      {kind, reason} -> IO.puts("  skipped #{kind}: #{reason}")
+    end)
+
+    Enum.each(result.failures, fn failure ->
+      IO.puts("  failed #{failure.kind}: #{failure.path} (#{inspect(failure.reason)})")
+    end)
+  end
 end

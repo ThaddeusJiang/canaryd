@@ -39,6 +39,8 @@ problems that a simple process check can miss.
   stays above 1 GB RSS with low CPU use while the user is away.
 - **Stop idle Simulators.** Shut down booted Simulator devices after sustained
   whole-Mac inactivity, while protecting active Xcode test runs.
+- **Reclaim build space.** Remove Xcode DerivedData and Cargo target directories
+  only after their complete trees have been inactive for seven days.
 - **Verify CleanClip.** Check that CleanClip records new clipboard items, not
   only that its process exists.
 - **Stay quiet.** Use background restarts and Notification Center. Do not open
@@ -216,13 +218,14 @@ Add that line to the shell profile to keep the setting.
 canaryd status
 ```
 
-The first command installs one launchd agent:
+The first command installs two launchd agents:
 
-| Agent | Interval | Work |
+| Agent | Schedule | Work |
 | --- | ---: | --- |
 | Full health check | 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, and CleanClip |
+| Build cleanup | Daily at 04:00 | Remove validated Xcode DerivedData and Cargo target directories that have been inactive for seven days |
 
-Every command verifies this agent. If it is missing, Canaryd creates it again.
+Every command verifies these agents. If one is missing, Canaryd creates it again.
 Upgrades remove the obsolete one-minute thermal agent. You do not need to
 manage plist files. macOS may keep the removed item visible in Background
 Items until the next login even though it no longer runs.
@@ -234,10 +237,11 @@ Items until the next login even though it no longer runs.
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, or `apps` |
-| `canaryd install` | Reinstall and load the launchd agent |
-| `canaryd uninstall` | Remove the launchd agent and the notification helper |
-| `canaryd --version` | Show the installed version without changing the launchd agent |
+| `canaryd cleanup-builds` | Remove stale Xcode DerivedData and Cargo target directories now |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `builds`, or `apps` |
+| `canaryd install` | Reinstall and load the launchd agents |
+| `canaryd uninstall` | Remove the launchd agents and the notification helper |
+| `canaryd --version` | Show the installed version without changing the launchd agents |
 
 Examples:
 
@@ -246,6 +250,7 @@ canaryd check
 canaryd history thermal
 canaryd history memory
 canaryd history simulators
+canaryd history builds
 canaryd history apps
 ```
 
@@ -277,6 +282,12 @@ app.
   `SIGKILL`.
 - Simulator recovery never erases or deletes a device and pauses while a
   current-user `xcodebuild` or `xctest` process is active.
+- Build cleanup removes only validated, reproducible directories whose complete
+  trees are at least seven days old. It pauses Xcode cleanup while Xcode,
+  Simulator, `xcodebuild`, or `xctest` is active and pauses Rust cleanup while
+  `cargo` or `rustc` is active.
+- Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,
+  Simulator data, Cargo registry or git caches, installed binaries, or source.
 - Each app has a one-hour restart, prompt, or close cooldown.
 - Automatic termination can interrupt background work or expose an unsaved
   changes prompt.
@@ -378,12 +389,12 @@ Canaryd stores all runtime data in:
 ```
 
 `state.dets` contains the latest state-machine snapshot. `events.dets` contains
-the event history for app, thermal, system, and probe actions. The log files
-contain launchd output.
+the event history for app, thermal, system, probe, and build-cleanup actions.
+The log files contain launchd output.
 
 ## Uninstall
 
-Remove the launchd agent and the notification helper:
+Remove the launchd agents and the notification helper:
 
 ```sh
 canaryd uninstall

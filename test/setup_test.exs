@@ -13,17 +13,45 @@ defmodule Canaryd.SetupTest do
              "/Users/test/.mix/escripts/canaryd"
   end
 
-  test "runs one full health check every five minutes" do
+  test "runs the full health check every five minutes and build cleanup daily" do
+    assert Setup.labels() == [
+             "com.thaddeusjiang.canaryd",
+             "com.thaddeusjiang.canaryd.build-cleanup"
+           ]
+
     assert [
-             %{label: "com.thaddeusjiang.canaryd", command: "check", interval: 300_000}
+             %{
+               label: "com.thaddeusjiang.canaryd",
+               command: "check",
+               interval: 300_000,
+               run_at_load: true
+             },
+             %{
+               label: "com.thaddeusjiang.canaryd.build-cleanup",
+               command: "cleanup-builds",
+               calendar: %{hour: 4, minute: 0},
+               run_at_load: false
+             }
            ] = Setup.agent_specs("/Applications/canaryd")
   end
 
   test "converts the interval to launchd seconds at the plist boundary" do
-    [agent | _agents] = Setup.agent_specs("/Applications/canaryd")
+    [agent, _cleanup_agent] = Setup.agent_specs("/Applications/canaryd")
 
     assert Setup.agent_plist(agent) =~
              ~r/<key>StartInterval<\/key>\s+<integer>300<\/integer>/
+
+    assert Setup.agent_plist(agent) =~ "<key>RunAtLoad</key>"
+  end
+
+  test "renders cleanup at 04:00 without running it during installation" do
+    [_check_agent, cleanup_agent] = Setup.agent_specs("/Applications/canaryd")
+    plist = Setup.agent_plist(cleanup_agent)
+
+    assert plist =~ ~r/<key>StartCalendarInterval<\/key>\s+<dict>/
+    assert plist =~ ~r/<key>Hour<\/key>\s+<integer>4<\/integer>/
+    assert plist =~ ~r/<key>Minute<\/key>\s+<integer>0<\/integer>/
+    refute plist =~ "<key>RunAtLoad</key>"
   end
 
   test "marks the dedicated thermal agent as obsolete" do
