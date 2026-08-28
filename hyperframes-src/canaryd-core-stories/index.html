@@ -658,7 +658,6 @@
         font-size: 18px;
       }
 
-      .intro,
       .outro {
         z-index: 8;
         display: grid;
@@ -714,15 +713,7 @@
       data-height="1080"
       data-fps="30"
     >
-      <section id="intro" class="clip intro" data-start="0" data-duration="1.2" data-track-index="1">
-        <div class="hero-lockup">
-          <img class="hero-logo" src="assets/canaryd-logo.png" alt="Canaryd" />
-          <div class="hero-name">canaryd</div>
-          <div class="hero-tagline">A quiet health monitor for developer Macs.</div>
-        </div>
-      </section>
-
-      <section id="scene-one" class="clip scene" data-start="1.2" data-duration="2.75" data-track-index="1">
+      <section id="scene-one" class="clip scene" data-start="0" data-duration="3.95" data-track-index="1">
         <div class="brand">
           <img src="assets/canaryd-logo.png" alt="" />
           <div class="brand-name">canaryd</div>
@@ -924,18 +915,12 @@
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
 
-      tl.fromTo("#intro", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 0);
-      tl.fromTo("#intro .hero-logo", { opacity: 0, scale: 0.72, y: 36 }, { opacity: 1, scale: 1, y: 0, duration: 0.55, ease: "power3.out" }, 0.08);
-      tl.fromTo("#intro .hero-name", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.42 }, 0.28);
-      tl.fromTo("#intro .hero-tagline", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4 }, 0.42);
-      tl.to("#intro", { opacity: 0, duration: 0.24 }, 1.18);
-
-      tl.fromTo("#scene-one", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 1.2);
-      tl.fromTo("#scene-one .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 1.32);
-      tl.fromTo("#scene-one .visual-stage", { opacity: 0, x: 90, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.62, ease: "power3.out" }, 1.38);
-      tl.fromTo("#scene-one .process-line-fill", { width: "0%" }, { width: "100%", duration: 0.82, ease: "power2.inOut" }, 2.12);
-      tl.fromTo("#scene-one .canary-on-rail", { opacity: 0, scale: 0.7, x: -250 }, { opacity: 1, scale: 1, x: 0, duration: 0.8, ease: "power3.out" }, 2.08);
-      tl.fromTo("#scene-one .new-process", { opacity: 0, x: 48 }, { opacity: 1, x: 0, duration: 0.4 }, 2.62);
+      tl.set("#scene-one", { opacity: 1 }, 0);
+      tl.set("#scene-one .copy-block", { opacity: 1, y: 0 }, 0);
+      tl.set("#scene-one .visual-stage", { opacity: 1, x: 0, scale: 1 }, 0);
+      tl.fromTo("#scene-one .process-line-fill", { width: "0%" }, { width: "100%", duration: 0.82, ease: "power2.inOut" }, 0.92);
+      tl.fromTo("#scene-one .canary-on-rail", { opacity: 0, scale: 0.7, x: -250 }, { opacity: 1, scale: 1, x: 0, duration: 0.8, ease: "power3.out" }, 0.88);
+      tl.fromTo("#scene-one .new-process", { opacity: 0, x: 48 }, { opacity: 1, x: 0, duration: 0.4 }, 1.42);
       tl.to("#scene-one", { opacity: 0, duration: 0.24 }, 3.93);
 
       tl.fromTo("#scene-two", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 3.95);
