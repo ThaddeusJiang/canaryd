@@ -23,6 +23,24 @@ defmodule Canaryd.ReleaseConfigTest do
     refute workflow =~ "gh release create"
   end
 
+  test "installs the pinned Zig release without a Node 20 action" do
+    workflow = File.read!(".github/workflows/release.yml")
+
+    refute workflow =~ "mlugg/setup-zig"
+    assert workflow =~ "https://ziglang.org/download/0.16.0/"
+    assert workflow =~ "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+    assert workflow =~ "0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7"
+    assert workflow =~ "shasum -a 256 -c -"
+  end
+
+  test "requires Node.js 24 for the HyperFrames source project" do
+    package_json = File.read!("hyperframes-src/canaryd-core-stories/package.json")
+    package_lock = File.read!("hyperframes-src/canaryd-core-stories/package-lock.json")
+
+    assert package_json =~ ~s("node": ">=24.0.0")
+    assert package_lock =~ ~s("node": ">=24.0.0")
+  end
+
   test "publishes the matching Hex package with a step-scoped secret" do
     workflow = File.read!(".github/workflows/release.yml")
 

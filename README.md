@@ -409,6 +409,9 @@ BURRITO_TARGET=macos_arm64 MIX_ENV=prod mise exec zig@0.16.0 -- mix release --ov
 The project uses Elixir/OTP, DETS storage, launchd, and a small Swift
 notification helper.
 
+Node.js 24 or later is required only when regenerating the HyperFrames story
+media under `hyperframes-src/`.
+
 ## License
 
 [MIT](./LICENSE)

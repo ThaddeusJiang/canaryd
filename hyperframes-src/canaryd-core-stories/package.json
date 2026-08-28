@@ -2,6 +2,9 @@
   "name": "canaryd-core-stories",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "preview": "npx --yes hyperframes@0.8.17 preview",
     "check": "npx --yes hyperframes@0.8.17 check --at-transitions",
