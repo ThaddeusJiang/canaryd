@@ -26,6 +26,7 @@
   <a href="#safety-model">Safety</a>
 </p>
 
+<!-- canaryd-video:start -->
 <p align="center">
   <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4?raw=1">
     <img src="./hyperframes-src/canaryd-core-stories/output/publish/poster.png" width="860" alt="Watch Canaryd recover five common developer-Mac problems">
@@ -33,6 +34,7 @@
   <br>
   <sub>▶ Watch the 16-second core story reel.</sub>
 </p>
+<!-- canaryd-video:end -->
 
 ---
 

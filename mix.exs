@@ -1,6 +1,29 @@
 defmodule Canaryd.MixProject do
   use Mix.Project
 
+  @github_video ~r/<!-- canaryd-video:start -->.*?<!-- canaryd-video:end -->/s
+  @hexdocs_video """
+  <div style="text-align: center;">
+    <video
+      controls
+      playsinline
+      preload="metadata"
+      poster="./hyperframes-src/canaryd-core-stories/output/publish/poster.png"
+      style="width: 100%; max-width: 860px; height: auto;"
+    >
+      <source
+        src="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4"
+        type="video/mp4"
+      >
+      <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4">
+        Download the Canaryd core story reel
+      </a>
+    </video>
+    <br>
+    <small>Canaryd's 16-second core story reel.</small>
+  </div>
+  """
+
   def project do
     [
       app: :canaryd,
@@ -13,20 +36,7 @@ defmodule Canaryd.MixProject do
       package: package(),
       deps: deps(),
       source_url: "https://github.com/ThaddeusJiang/canaryd",
-      docs: [
-        main: "readme",
-        extras: ["README.md", "LICENSE"] ++ Path.wildcard("docs/specs/*.md"),
-        formatters: ["html", "markdown"],
-        skip_code_autolink_to: [
-          "Canaryd.NotificationHelper",
-          "Canaryd.Setup.agent_specs/1"
-        ],
-        assets: %{
-          "docs/assets" => "docs/assets",
-          "hyperframes-src/canaryd-core-stories/output/publish" =>
-            "hyperframes-src/canaryd-core-stories/output/publish"
-        }
-      ]
+      docs: &docs/0
     ]
   end
 
@@ -64,6 +74,41 @@ defmodule Canaryd.MixProject do
     are alive but silently dead (process running, function stopped) via
     synthetic probes. Self-heals with quiet restarts; only nags you when blocked.
     """
+  end
+
+  defp docs do
+    exdoc_readme = generate_exdoc_readme!()
+
+    [
+      main: "readme",
+      extras:
+        [{exdoc_readme, filename: "readme", source: "README.md"}, "LICENSE"] ++
+          Path.wildcard("docs/specs/*.md"),
+      formatters: ["html", "markdown"],
+      skip_code_autolink_to: [
+        "Canaryd.NotificationHelper",
+        "Canaryd.Setup.agent_specs/1"
+      ],
+      assets: %{
+        "docs/assets" => "docs/assets",
+        "hyperframes-src/canaryd-core-stories/output/publish" =>
+          "hyperframes-src/canaryd-core-stories/output/publish"
+      }
+    ]
+  end
+
+  defp generate_exdoc_readme! do
+    source = File.read!("README.md")
+    rendered = Regex.replace(@github_video, source, @hexdocs_video)
+
+    if rendered == source do
+      raise "README.md is missing the Canaryd video markers"
+    end
+
+    output = "tmp/exdoc/README.md"
+    File.mkdir_p!(Path.dirname(output))
+    File.write!(output, rendered)
+    output
   end
 
   defp package do
