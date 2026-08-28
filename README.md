@@ -27,8 +27,8 @@
 </p>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/hyperframes-src/canaryd-core-stories/output/canaryd-core-stories.mp4">
-    <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/hyperframes-src/canaryd-core-stories/output/poster.png" width="860" alt="Watch Canaryd recover five common developer-Mac problems">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4?raw=1">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/poster.png" width="860" alt="Watch Canaryd recover five common developer-Mac problems">
   </a>
   <br>
   <sub>▶ Watch the 16-second core story reel.</sub>
@@ -55,7 +55,7 @@ a replacement PID. It does not restart the editor, switch apps, or show a
 foreground alert.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/hyperframes-src/canaryd-core-stories/output/frames/cursoruiviewservice-recovery.png" width="860" alt="CursorUIViewService changes from Not Responding to a replacement process after quiet Canaryd recovery">
+  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/cursoruiviewservice-recovery.png" width="860" alt="CursorUIViewService changes from Not Responding to a replacement process after quiet Canaryd recovery">
 </p>
 
 ### 2. An AI agent finishes, but its Simulators keep running
@@ -71,7 +71,7 @@ running `simctl shutdown <UDID>`. It never erases, deletes, or resets the device
 or its data.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/docs/assets/notifications/simulators-shut-down.png" width="430" alt="Canaryd notification showing idle Simulators shut down">
+  <img src="./docs/assets/notifications/simulators-shut-down.png" width="430" alt="Canaryd notification showing idle Simulators shut down">
   <br>
   <sub>Representative capture from macOS Notification Center.</sub>
 </p>
@@ -89,7 +89,7 @@ data type first. If the user copies something during the probe, the newer user
 content always wins. A failed probe triggers a quiet restart.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/hyperframes-src/canaryd-core-stories/output/frames/cleanclip-functional-probe.png" width="860" alt="Canaryd detects that CleanClip is alive but its history is stale, runs a reversible functional probe, and confirms recovery">
+  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/cleanclip-functional-probe.png" width="860" alt="Canaryd detects that CleanClip is alive but its history is stale, runs a reversible functional probe, and confirms recovery">
 </p>
 
 ### 4. An AI coding session heats the Mac
@@ -108,7 +108,7 @@ a suspect without an automatic action. CPU use is correlation evidence, not
 exact heat attribution.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/docs/assets/notifications/thermal-action.png" width="430" alt="Canaryd high-temperature notification showing Xcode and Simulator as CPU-related heat suspects with Close and Restart actions">
+  <img src="./docs/assets/notifications/thermal-action.png" width="430" alt="Canaryd high-temperature notification showing Xcode and Simulator as CPU-related heat suspects with Close and Restart actions">
   <br>
   <sub>Representative capture from macOS Notification Center.</sub>
 </p>
@@ -129,7 +129,7 @@ then requests a graceful close. It protects the active app, Apple apps, system
 processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/hyperframes-src/canaryd-core-stories/output/frames/idle-memory-recovery.png" width="860" alt="Canaryd confirms that a third-party app is inactive, using more than one gigabyte of memory, and safe to close gracefully">
+  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/idle-memory-recovery.png" width="860" alt="Canaryd confirms that a third-party app is inactive, using more than one gigabyte of memory, and safe to close gracefully">
   <br>
   <sub>Representative recovery flow based on a real high-memory candidate.</sub>
 </p>
@@ -139,7 +139,7 @@ processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
 Run `canaryd status` to see current temperatures, CleanClip health, recent
 recovery events, pending app hangs, idle high-memory apps, and idle Simulators.
 
-![Example Canaryd status output](https://raw.githubusercontent.com/ThaddeusJiang/canaryd/main/docs/assets/canaryd-status.svg)
+![Example Canaryd status output](./docs/assets/canaryd-status.svg)
 
 > The screenshot contains representative values. Process names, temperatures,
 > and events come from the current Mac.

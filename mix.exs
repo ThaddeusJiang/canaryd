@@ -13,7 +13,20 @@ defmodule Canaryd.MixProject do
       package: package(),
       deps: deps(),
       source_url: "https://github.com/ThaddeusJiang/canaryd",
-      docs: [main: "readme", extras: ["README.md"]]
+      docs: [
+        main: "readme",
+        extras: ["README.md", "LICENSE"] ++ Path.wildcard("docs/specs/*.md"),
+        formatters: ["html", "markdown"],
+        skip_code_autolink_to: [
+          "Canaryd.NotificationHelper",
+          "Canaryd.Setup.agent_specs/1"
+        ],
+        assets: %{
+          "docs/assets" => "docs/assets",
+          "hyperframes-src/canaryd-core-stories/output/publish" =>
+            "hyperframes-src/canaryd-core-stories/output/publish"
+        }
+      ]
     ]
   end
 
