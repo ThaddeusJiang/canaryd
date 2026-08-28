@@ -1,0 +1,14 @@
+{
+  "name": "canaryd-core-stories",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "npx --yes hyperframes@0.8.17 preview",
+    "check": "npx --yes hyperframes@0.8.17 check --at-transitions",
+    "snapshot": "npx --yes hyperframes@0.8.17 snapshot --at 0,0.9,1.7,3.35,6.15,8.95,11.75,14.55 --no-end --output output/review",
+    "render": "npm run render:video && npm run render:poster && npm run render:readme",
+    "render:video": "npx --yes hyperframes@0.8.17 render --quality high --strict --output output/publish/canaryd-core-stories.mp4",
+    "render:poster": "ffmpeg -version | grep -q '^ffmpeg version 8\\.1 ' && ffmpeg -hide_banner -loglevel error -y -i output/publish/canaryd-core-stories.mp4 -ss 3.35 -frames:v 1 output/publish/poster.png",
+    "render:readme": "ffmpeg -version | grep -q '^ffmpeg version 8\\.1 ' && ffmpeg -hide_banner -loglevel error -y -i output/publish/canaryd-core-stories.mp4 -filter_complex \"fps=10,scale=860:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle\" -loop 0 output/publish/canaryd-core-stories.gif"
+  }
+}
