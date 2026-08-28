@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --night: #080d11;
+        --night-2: #101820;
+        --surface: #131e26;
+        --surface-2: #1a2832;
+        --line: rgba(255, 255, 255, 0.12);
+        --paper: #f7f4ea;
+        --muted: #98a7b1;
+        --yellow: #ffc928;
+        --red: #ff6f66;
+        --green: #4bd38a;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--night);
+      }
+
+      body {
+        color: var(--paper);
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+        text-rendering: geometricPrecision;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 84% 16%, rgba(255, 201, 40, 0.12), transparent 32%),
+          radial-gradient(circle at 12% 92%, rgba(74, 106, 126, 0.18), transparent 34%),
+          linear-gradient(145deg, #070b0e 0%, #0c1318 54%, #0a0f13 100%);
+      }
+
+      #root::before {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+        background-size: 80px 80px;
+        content: "";
+        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.7), transparent 88%);
+      }
+
+      .clip {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+
+      .scene {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+        gap: 84px;
+        align-items: center;
+        padding: 88px 104px;
+        opacity: 0;
+      }
+
+      .scene::after {
+        position: absolute;
+        right: -180px;
+        bottom: -280px;
+        width: 760px;
+        height: 760px;
+        border: 1px solid rgba(255, 201, 40, 0.14);
+        border-radius: 50%;
+        content: "";
+      }
+
+      .brand {
+        position: absolute;
+        top: 64px;
+        left: 104px;
+        z-index: 5;
+        display: flex;
+        gap: 18px;
+        align-items: center;
+      }
+
+      .brand img {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+      }
+
+      .brand-name {
+        color: var(--paper);
+        font-size: 28px;
+        font-weight: 720;
+        letter-spacing: -0.02em;
+      }
+
+      .copy-block {
+        position: relative;
+        z-index: 6;
+        max-width: 720px;
+        padding-top: 84px;
+      }
+
+      .story-index {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        margin-bottom: 34px;
+        color: var(--yellow);
+        font-size: 21px;
+        font-weight: 680;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+      }
+
+      .story-index::before {
+        width: 56px;
+        height: 2px;
+        background: var(--yellow);
+        content: "";
+      }
+
+      h1 {
+        max-width: 710px;
+        color: var(--paper);
+        font-size: 82px;
+        font-weight: 680;
+        letter-spacing: -0.052em;
+        line-height: 0.98;
+      }
+
+      h1 em {
+        color: var(--yellow);
+        font-style: normal;
+      }
+
+      .lede {
+        max-width: 650px;
+        margin-top: 38px;
+        color: var(--muted);
+        font-size: 28px;
+        font-weight: 450;
+        letter-spacing: -0.016em;
+        line-height: 1.4;
+      }
+
+      .fact-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px 26px;
+        align-items: center;
+        margin-top: 42px;
+        color: #dbe3e7;
+        font-size: 22px;
+        font-weight: 620;
+      }
+
+      .fact-line span + span::before {
+        margin-right: 26px;
+        color: var(--yellow);
+        content: "•";
+      }
+
+      .visual-stage {
+        position: relative;
+        z-index: 2;
+        width: 860px;
+        height: 680px;
+      }
+
+      .mac-window,
+      .glass-panel {
+        position: absolute;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        background: rgba(19, 30, 38, 0.9);
+        box-shadow: 0 38px 100px rgba(0, 0, 0, 0.38);
+        backdrop-filter: blur(18px);
+      }
+
+      .mac-window {
+        inset: 34px 0 0 0;
+        border-radius: 34px;
+      }
+
+      .window-bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        height: 76px;
+        padding: 0 30px;
+        border-bottom: 1px solid var(--line);
+        background: #0f171d;
+      }
+
+      .traffic {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+      }
+
+      .traffic.red { background: #ff655e; }
+      .traffic.yellow { background: #ffc44d; }
+      .traffic.green { background: #3dcf77; }
+
+      .window-title {
+        margin-left: 14px;
+        color: #c5d0d6;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .window-body {
+        position: relative;
+        height: calc(100% - 76px);
+        padding: 50px;
+      }
+
+      .code-line {
+        height: 18px;
+        margin-bottom: 20px;
+        border-radius: 9px;
+        background: #263640;
+      }
+
+      .code-line.yellow { background: rgba(255, 201, 40, 0.4); }
+      .code-line.short { width: 38%; }
+      .code-line.medium { width: 64%; }
+      .code-line.long { width: 86%; }
+
+      .input-row {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        margin-top: 54px;
+        padding: 24px 28px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 18px;
+        background: #0d151a;
+        color: #f6f4ea;
+        font-size: 31px;
+        letter-spacing: -0.02em;
+      }
+
+      .caret {
+        width: 3px;
+        height: 38px;
+        border-radius: 2px;
+        background: var(--paper);
+      }
+
+      .service-rail {
+        position: absolute;
+        right: 48px;
+        bottom: 48px;
+        left: 48px;
+        height: 128px;
+      }
+
+      .process-line,
+      .process-line-fill {
+        position: absolute;
+        top: 52px;
+        left: 98px;
+        height: 4px;
+        border-radius: 2px;
+      }
+
+      .process-line {
+        right: 98px;
+        background: #344550;
+      }
+
+      .process-line-fill {
+        width: 0;
+        max-width: 510px;
+        background: linear-gradient(90deg, var(--red), var(--yellow) 55%, var(--green));
+      }
+
+      .process {
+        position: absolute;
+        top: 0;
+        width: 176px;
+      }
+
+      .process.old { left: 0; }
+      .process.new { right: 0; text-align: right; }
+
+      .pid {
+        font-family: monospace;
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .old .pid { color: var(--red); }
+      .new .pid { color: var(--green); }
+
+      .process-state {
+        margin-top: 9px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .canary-on-rail {
+        position: absolute;
+        top: 11px;
+        left: 345px;
+        width: 86px;
+        height: 86px;
+        border-radius: 22px;
+        box-shadow: 0 16px 38px rgba(0, 0, 0, 0.34);
+      }
+
+      .device {
+        position: absolute;
+        width: 250px;
+        height: 500px;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+        border-radius: 46px;
+        background: linear-gradient(155deg, #1a2933, #0d151a);
+        box-shadow: 0 28px 70px rgba(0, 0, 0, 0.35);
+      }
+
+      .device::before {
+        position: absolute;
+        top: 18px;
+        left: 50%;
+        width: 86px;
+        height: 22px;
+        border-radius: 12px;
+        background: #070b0e;
+        content: "";
+        transform: translateX(-50%);
+      }
+
+      .device::after {
+        position: absolute;
+        inset: 54px 16px 16px;
+        border-radius: 30px;
+        background:
+          radial-gradient(circle at 70% 24%, rgba(255, 201, 40, 0.48), transparent 26%),
+          linear-gradient(160deg, #233943, #0d151a 70%);
+        content: "";
+      }
+
+      .device.one { top: 74px; left: 74px; transform: rotate(-9deg); }
+      .device.two { top: 30px; left: 302px; transform: rotate(1deg); }
+      .device.three { top: 86px; left: 532px; transform: rotate(10deg); }
+
+      .notification-wrap {
+        position: absolute;
+        right: 22px;
+        bottom: 8px;
+        width: 660px;
+        padding: 26px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 34px;
+        background: rgba(9, 14, 18, 0.82);
+        box-shadow: 0 34px 80px rgba(0, 0, 0, 0.48);
+        backdrop-filter: blur(24px);
+      }
+
+      .notification-wrap img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .agent-finished {
+        position: absolute;
+        top: 6px;
+        right: 18px;
+        color: #c6d1d7;
+        font-family: monospace;
+        font-size: 19px;
+      }
+
+      .clipboard-window {
+        inset: 22px 0 18px;
+        border-radius: 34px;
+      }
+
+      .clipboard-layout {
+        display: grid;
+        grid-template-columns: 1fr 110px 1fr;
+        gap: 26px;
+        align-items: center;
+        height: 100%;
+        padding: 54px;
+      }
+
+      .history-column {
+        position: relative;
+        min-width: 0;
+      }
+
+      .history-title {
+        margin-bottom: 22px;
+        color: var(--muted);
+        font-size: 20px;
+        font-weight: 650;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .history-card {
+        min-height: 280px;
+        padding: 34px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 26px;
+        background: #0d151a;
+      }
+
+      .history-card.matched {
+        border-color: rgba(75, 211, 138, 0.45);
+        background: linear-gradient(145deg, rgba(75, 211, 138, 0.12), #0d151a 58%);
+      }
+
+      .history-age {
+        color: var(--red);
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .history-age.good { color: var(--green); }
+
+      .history-rule {
+        height: 13px;
+        margin-top: 24px;
+        border-radius: 7px;
+        background: #364853;
+      }
+
+      .history-rule.short { width: 54%; }
+      .history-rule.medium { width: 76%; }
+
+      .types {
+        display: flex;
+        gap: 22px;
+        margin-top: 42px;
+        color: #aab7bf;
+        font-size: 17px;
+      }
+
+      .probe-logo {
+        width: 98px;
+        height: 98px;
+        border-radius: 26px;
+        box-shadow: 0 20px 48px rgba(0, 0, 0, 0.42);
+      }
+
+      .probe-line {
+        position: absolute;
+        top: 50%;
+        left: 366px;
+        z-index: -1;
+        width: 126px;
+        height: 3px;
+        background: var(--yellow);
+      }
+
+      .heat-ring {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        border: 2px solid rgba(255, 123, 78, 0.3);
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .heat-ring.one { width: 430px; height: 430px; }
+      .heat-ring.two { width: 590px; height: 590px; opacity: 0.62; }
+      .heat-ring.three { width: 660px; height: 660px; opacity: 0.34; }
+
+      .thermal-core {
+        position: absolute;
+        top: 144px;
+        left: 230px;
+        width: 400px;
+        height: 400px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255, 201, 40, 0.4), rgba(255, 91, 60, 0.16) 42%, transparent 70%);
+      }
+
+      .thermal-notification {
+        position: absolute;
+        top: 140px;
+        left: 102px;
+        width: 656px;
+        padding: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 34px;
+        background: rgba(8, 13, 17, 0.82);
+        box-shadow: 0 38px 90px rgba(0, 0, 0, 0.46);
+        backdrop-filter: blur(24px);
+      }
+
+      .thermal-notification img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .process-bars {
+        position: absolute;
+        right: 16px;
+        bottom: 6px;
+        left: 16px;
+        display: flex;
+        gap: 18px;
+        align-items: flex-end;
+        height: 116px;
+      }
+
+      .process-bar {
+        flex: 1;
+        border-radius: 14px 14px 4px 4px;
+        background: linear-gradient(to top, #e85b42, #ffc928);
+      }
+
+      .process-bar:nth-child(1) { height: 100%; }
+      .process-bar:nth-child(2) { height: 72%; opacity: 0.78; }
+      .process-bar:nth-child(3) { height: 46%; opacity: 0.56; }
+      .process-bar:nth-child(4) { height: 28%; opacity: 0.38; }
+
+      .memory-window {
+        inset: 26px 0 22px;
+        border-radius: 34px;
+      }
+
+      .memory-head {
+        display: flex;
+        align-items: center;
+        padding: 42px 46px 34px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .memory-head img {
+        width: 82px;
+        height: 82px;
+        margin-left: auto;
+        border-radius: 22px;
+      }
+
+      .candidate-name {
+        color: var(--paper);
+        font-size: 34px;
+        font-weight: 680;
+      }
+
+      .candidate-detail {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 20px;
+      }
+
+      .memory-grid {
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 46px;
+        padding: 48px;
+      }
+
+      .memory-number {
+        color: var(--paper);
+        font-size: 92px;
+        font-weight: 690;
+        letter-spacing: -0.055em;
+      }
+
+      .memory-label {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 20px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .cpu-value {
+        margin-top: 32px;
+        color: #d1dbe0;
+        font-family: monospace;
+        font-size: 24px;
+      }
+
+      .checks {
+        padding-top: 12px;
+      }
+
+      .check-title {
+        color: var(--muted);
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .check-rail {
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        margin-top: 36px;
+      }
+
+      .check-rail::before {
+        position: absolute;
+        top: 23px;
+        right: 24px;
+        left: 24px;
+        height: 4px;
+        background: #344650;
+        content: "";
+      }
+
+      .check-dot {
+        z-index: 2;
+        display: grid;
+        width: 50px;
+        height: 50px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--green);
+        color: #07100b;
+        font-size: 25px;
+        font-weight: 900;
+      }
+
+      .quit-state {
+        margin-top: 54px;
+        padding-top: 30px;
+        border-top: 1px solid var(--line);
+        color: var(--green);
+        font-size: 28px;
+        font-weight: 680;
+      }
+
+      .quit-note {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .intro,
+      .outro {
+        z-index: 8;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 42%, rgba(255, 201, 40, 0.2), transparent 30%),
+          var(--night);
+        opacity: 0;
+      }
+
+      .hero-lockup {
+        display: grid;
+        justify-items: center;
+      }
+
+      .hero-logo {
+        width: 188px;
+        height: 188px;
+        border-radius: 48px;
+        box-shadow: 0 34px 80px rgba(0, 0, 0, 0.44);
+      }
+
+      .hero-name {
+        margin-top: 34px;
+        color: var(--paper);
+        font-size: 66px;
+        font-weight: 720;
+        letter-spacing: -0.045em;
+      }
+
+      .hero-tagline {
+        margin-top: 15px;
+        color: var(--muted);
+        font-size: 27px;
+      }
+
+      .outro .hero-tagline {
+        max-width: 760px;
+        color: #d2dbe0;
+        font-size: 32px;
+        line-height: 1.3;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="canaryd-core-stories"
+      data-start="0"
+      data-duration="16.5"
+      data-width="1920"
+      data-height="1080"
+      data-fps="30"
+    >
+      <section id="intro" class="clip intro" data-start="0" data-duration="1.2" data-track-index="1">
+        <div class="hero-lockup">
+          <img class="hero-logo" src="assets/canaryd-logo.png" alt="Canaryd" />
+          <div class="hero-name">canaryd</div>
+          <div class="hero-tagline">A quiet health monitor for developer Macs.</div>
+        </div>
+      </section>
+
+      <section id="scene-one" class="clip scene" data-start="1.2" data-duration="2.75" data-track-index="1">
+        <div class="brand">
+          <img src="assets/canaryd-logo.png" alt="" />
+          <div class="brand-name">canaryd</div>
+        </div>
+        <div class="copy-block">
+          <div class="story-index">01 / Silent recovery</div>
+          <h1>Text input froze.<br /><em>Work kept moving.</em></h1>
+          <p class="lede">Canaryd replaces the exact stalled service while the editor stays open.</p>
+          <div class="fact-line">
+            <span>Confirmed twice</span>
+            <span>No alert</span>
+            <span>No app switch</span>
+          </div>
+        </div>
+        <div class="visual-stage">
+          <div class="mac-window">
+            <div class="window-bar">
+              <span class="traffic red"></span><span class="traffic yellow"></span><span class="traffic green"></span>
+              <span class="window-title">Text input</span>
+            </div>
+            <div class="window-body">
+              <div class="code-line yellow medium"></div>
+              <div class="code-line long"></div>
+              <div class="code-line short"></div>
+              <div class="input-row"><span>keep shipping</span><span class="caret"></span></div>
+              <div class="service-rail">
+                <div class="process-line"></div>
+                <div class="process-line-fill"></div>
+                <div class="process old">
+                  <div class="pid">PID 7103</div>
+                  <div class="process-state">confirmed stalled</div>
+                </div>
+                <img class="canary-on-rail" src="assets/canaryd-logo.png" alt="" />
+                <div class="process new new-process">
+                  <div class="pid">PID 8007</div>
+                  <div class="process-state">replacement ready</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-two" class="clip scene" data-start="3.95" data-duration="2.75" data-track-index="1">
+        <div class="brand">
+          <img src="assets/canaryd-logo.png" alt="" />
+          <div class="brand-name">canaryd</div>
+        </div>
+        <div class="copy-block">
+          <div class="story-index">02 / Idle Simulators</div>
+          <h1>The agent finished.<br /><em>Three Simulators didn’t.</em></h1>
+          <p class="lede">After sustained inactivity, Canaryd shuts down only the exact booted devices.</p>
+          <div class="fact-line">
+            <span>15+ hours idle</span>
+            <span>742 processes</span>
+            <span>Never erase</span>
+          </div>
+        </div>
+        <div class="visual-stage simulator-stage">
+          <div class="agent-finished">agent task · complete</div>
+          <div class="device one"></div>
+          <div class="device two"></div>
+          <div class="device three"></div>
+          <div class="notification-wrap">
+            <img src="assets/simulators-shut-down.png" alt="Canaryd Simulator shutdown notification" />
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-three" class="clip scene" data-start="6.7" data-duration="2.75" data-track-index="1">
+        <div class="brand">
+          <img src="assets/canaryd-logo.png" alt="" />
+          <div class="brand-name">canaryd</div>
+        </div>
+        <div class="copy-block">
+          <div class="story-index">03 / Functional health</div>
+          <h1>The process was alive.<br /><em>The feature was dead.</em></h1>
+          <p class="lede">Canaryd replays one real history item and confirms CleanClip actually recorded it.</p>
+          <div class="fact-line">
+            <span>Real history</span>
+            <span>Every data type</span>
+            <span>Newest copy wins</span>
+          </div>
+        </div>
+        <div class="visual-stage">
+          <div class="glass-panel clipboard-window">
+            <div class="clipboard-layout">
+              <div class="history-column">
+                <div class="history-title">History stopped</div>
+                <div class="history-card">
+                  <div class="history-age">Last update · 2 days ago</div>
+                  <div class="history-rule medium"></div>
+                  <div class="history-rule"></div>
+                  <div class="history-rule short"></div>
+                  <div class="types"><span>TEXT</span><span>HTML</span><span>IMAGE</span></div>
+                </div>
+              </div>
+              <div class="probe-line"></div>
+              <img class="probe-logo" src="assets/canaryd-logo.png" alt="" />
+              <div class="history-column matched-column">
+                <div class="history-title">Function verified</div>
+                <div class="history-card matched">
+                  <div class="history-age good">Matching content observed</div>
+                  <div class="history-rule medium"></div>
+                  <div class="history-rule"></div>
+                  <div class="history-rule short"></div>
+                  <div class="types"><span>TEXT</span><span>HTML</span><span>IMAGE</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-four" class="clip scene" data-start="9.45" data-duration="2.75" data-track-index="1">
+        <div class="brand">
+          <img src="assets/canaryd-logo.png" alt="" />
+          <div class="brand-name">canaryd</div>
+        </div>
+        <div class="copy-block">
+          <div class="story-index">04 / Thermal pressure</div>
+          <h1>The coding session ended.<br /><em>The heat didn’t.</em></h1>
+          <p class="lede">Canaryd finds the high-CPU suspects and offers safe actions for top-level apps.</p>
+          <div class="fact-line">
+            <span>Three samples</span>
+            <span>Top suspects</span>
+            <span>Safe actions only</span>
+          </div>
+        </div>
+        <div class="visual-stage thermal-stage">
+          <div class="heat-ring one"></div>
+          <div class="heat-ring two"></div>
+          <div class="heat-ring three"></div>
+          <div class="thermal-core"></div>
+          <div class="thermal-notification">
+            <img src="assets/thermal-action.png" alt="Canaryd thermal action notification" />
+          </div>
+          <div class="process-bars">
+            <div class="process-bar"></div><div class="process-bar"></div><div class="process-bar"></div><div class="process-bar"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="scene-five" class="clip scene" data-start="12.2" data-duration="2.75" data-track-index="1">
+        <div class="brand">
+          <img src="assets/canaryd-logo.png" alt="" />
+          <div class="brand-name">canaryd</div>
+        </div>
+        <div class="copy-block">
+          <div class="story-index">05 / Idle memory</div>
+          <h1>The task ended.<br /><em>1.03 GB didn’t.</em></h1>
+          <p class="lede">Canaryd waits for three quiet checks, then asks the inactive app to quit gracefully.</p>
+          <div class="fact-line">
+            <span>30 minutes away</span>
+            <span>CPU 0.0%</span>
+            <span>Never SIGKILL</span>
+          </div>
+        </div>
+        <div class="visual-stage">
+          <div class="glass-panel memory-window">
+            <div class="memory-head">
+              <div>
+                <div class="candidate-name">Nowledge Mem</div>
+                <div class="candidate-detail">inactive third-party application</div>
+              </div>
+              <img src="assets/canaryd-logo.png" alt="" />
+            </div>
+            <div class="memory-grid">
+              <div>
+                <div class="memory-number">1,032 MB</div>
+                <div class="memory-label">aggregate RSS</div>
+                <div class="cpu-value">CPU 0.0%</div>
+              </div>
+              <div class="checks">
+                <div class="check-title">Same app · same PID</div>
+                <div class="check-rail">
+                  <div class="check-dot check-one">✓</div>
+                  <div class="check-dot check-two">✓</div>
+                  <div class="check-dot check-three">✓</div>
+                </div>
+                <div class="quit-state">Graceful quit requested</div>
+                <div class="quit-note">Active and Apple apps stay protected.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="outro" class="clip outro" data-start="14.95" data-duration="1.55" data-track-index="1">
+        <div class="hero-lockup">
+          <img class="hero-logo" src="assets/canaryd-logo.png" alt="Canaryd" />
+          <div class="hero-name">canaryd</div>
+          <div class="hero-tagline">It watches quietly. It confirms before acting. It keeps the recovery local.</div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#intro", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 0);
+      tl.fromTo("#intro .hero-logo", { opacity: 0, scale: 0.72, y: 36 }, { opacity: 1, scale: 1, y: 0, duration: 0.55, ease: "power3.out" }, 0.08);
+      tl.fromTo("#intro .hero-name", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.42 }, 0.28);
+      tl.fromTo("#intro .hero-tagline", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4 }, 0.42);
+      tl.to("#intro", { opacity: 0, duration: 0.24 }, 1.18);
+
+      tl.fromTo("#scene-one", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 1.2);
+      tl.fromTo("#scene-one .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 1.32);
+      tl.fromTo("#scene-one .visual-stage", { opacity: 0, x: 90, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.62, ease: "power3.out" }, 1.38);
+      tl.fromTo("#scene-one .process-line-fill", { width: "0%" }, { width: "100%", duration: 0.82, ease: "power2.inOut" }, 2.12);
+      tl.fromTo("#scene-one .canary-on-rail", { opacity: 0, scale: 0.7, x: -250 }, { opacity: 1, scale: 1, x: 0, duration: 0.8, ease: "power3.out" }, 2.08);
+      tl.fromTo("#scene-one .new-process", { opacity: 0, x: 48 }, { opacity: 1, x: 0, duration: 0.4 }, 2.62);
+      tl.to("#scene-one", { opacity: 0, duration: 0.24 }, 3.93);
+
+      tl.fromTo("#scene-two", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 3.95);
+      tl.fromTo("#scene-two .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 4.08);
+      tl.fromTo("#scene-two .device.one", { opacity: 0, y: 100, rotation: -15 }, { opacity: 1, y: 0, rotation: -9, duration: 0.55 }, 4.2);
+      tl.fromTo("#scene-two .device.two", { opacity: 0, y: 110 }, { opacity: 1, y: 0, duration: 0.55 }, 4.35);
+      tl.fromTo("#scene-two .device.three", { opacity: 0, y: 100, rotation: 16 }, { opacity: 1, y: 0, rotation: 10, duration: 0.55 }, 4.5);
+      tl.fromTo("#scene-two .notification-wrap", { opacity: 0, y: 70, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "power3.out" }, 5.02);
+      tl.to("#scene-two", { opacity: 0, duration: 0.24 }, 6.68);
+
+      tl.fromTo("#scene-three", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 6.7);
+      tl.fromTo("#scene-three .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 6.82);
+      tl.fromTo("#scene-three .clipboard-window", { opacity: 0, x: 90, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.62, ease: "power3.out" }, 6.88);
+      tl.fromTo("#scene-three .probe-line", { width: 0 }, { width: 126, duration: 0.5 }, 7.62);
+      tl.fromTo("#scene-three .probe-logo", { opacity: 0, scale: 0.72, x: -120 }, { opacity: 1, scale: 1, x: 0, duration: 0.62, ease: "power3.out" }, 7.55);
+      tl.fromTo("#scene-three .matched-column", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.46 }, 8.05);
+      tl.to("#scene-three", { opacity: 0, duration: 0.24 }, 9.43);
+
+      tl.fromTo("#scene-four", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 9.45);
+      tl.fromTo("#scene-four .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 9.58);
+      tl.fromTo("#scene-four .heat-ring.one", { opacity: 0, scale: 0.55 }, { opacity: 1, scale: 1, duration: 0.7 }, 9.72);
+      tl.fromTo("#scene-four .heat-ring.two", { opacity: 0, scale: 0.55 }, { opacity: 0.62, scale: 1, duration: 0.82 }, 9.86);
+      tl.fromTo("#scene-four .heat-ring.three", { opacity: 0, scale: 0.55 }, { opacity: 0.34, scale: 1, duration: 0.92 }, 10.0);
+      tl.fromTo("#scene-four .thermal-notification", { opacity: 0, y: 70, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: 0.58, ease: "power3.out" }, 10.38);
+      tl.fromTo("#scene-four .process-bars", { opacity: 0, y: 35 }, { opacity: 1, y: 0, duration: 0.45 }, 10.68);
+      tl.to("#scene-four", { opacity: 0, duration: 0.24 }, 12.18);
+
+      tl.fromTo("#scene-five", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 12.2);
+      tl.fromTo("#scene-five .copy-block", { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.52, ease: "power3.out" }, 12.33);
+      tl.fromTo("#scene-five .memory-window", { opacity: 0, x: 90, scale: 0.97 }, { opacity: 1, x: 0, scale: 1, duration: 0.62, ease: "power3.out" }, 12.4);
+      tl.fromTo("#scene-five .check-one", { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 0.3 }, 13.18);
+      tl.fromTo("#scene-five .check-two", { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 0.3 }, 13.38);
+      tl.fromTo("#scene-five .check-three", { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 0.3 }, 13.58);
+      tl.fromTo("#scene-five .quit-state", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.4 }, 13.82);
+      tl.to("#scene-five", { opacity: 0, duration: 0.24 }, 14.93);
+
+      tl.fromTo("#outro", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 14.95);
+      tl.fromTo("#outro .hero-logo", { opacity: 0, scale: 0.72, y: 34 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "power3.out" }, 15.02);
+      tl.fromTo("#outro .hero-name", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.38 }, 15.2);
+      tl.fromTo("#outro .hero-tagline", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.38 }, 15.34);
+
+      window.__timelines["canaryd-core-stories"] = tl;
+    </script>
+  </body>
+</html>

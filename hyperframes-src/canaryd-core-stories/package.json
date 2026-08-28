@@ -1,0 +1,11 @@
+{
+  "name": "canaryd-core-stories",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "npx --yes hyperframes@0.8.17 preview",
+    "check": "npx --yes hyperframes@0.8.17 check --at-transitions",
+    "snapshot": "npx --yes hyperframes@0.8.17 snapshot --at 3.35,6.15,8.95,11.75,14.55 --no-end --output output/review",
+    "render": "npx --yes hyperframes@0.8.17 render --quality high --strict --output output/canaryd-core-stories.mp4"
+  }
+}

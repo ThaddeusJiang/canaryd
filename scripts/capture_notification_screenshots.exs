@@ -184,7 +184,7 @@ case NotificationHelper.ensure_installed() do
 end
 
 helper = NotificationHelper.executable_path()
-output_dir = Path.expand("../docs/images/notifications", __DIR__)
+output_dir = Path.expand("../docs/assets/notifications", __DIR__)
 File.mkdir_p!(output_dir)
 
 Enum.each(notifications, fn notification ->
