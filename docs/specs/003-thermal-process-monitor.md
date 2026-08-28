@@ -70,7 +70,7 @@ Ask the user to close, restart, or ignore one safe app candidate.
 27. Log warning delivery, choice, success, and failure.
 28. Clear pending observations when thermal pressure ends.
 29. Run one full health check, including thermal monitoring, every five minutes.
-30. Install one launchd agent for scheduled checks.
+30. Install one launchd agent for scheduled health checks.
 31. During an upgrade, unload and remove the obsolete dedicated thermal agent.
 32. Use the shared store lock to prevent concurrent check rounds.
 
@@ -128,7 +128,7 @@ Then:
 - canaryd reports the process as a suspect.
 - canaryd does not offer a close or restart action for it.
 
-### BDD-04 Run one five-minute background schedule
+### BDD-04 Run one five-minute background health schedule
 
 Given:
 - canaryd may have the current full-check agent and the obsolete dedicated thermal agent installed.
@@ -143,17 +143,18 @@ Then:
 
 Test Plan:
 - Lowest useful level: setup unit tests plus a local launchd installation check.
-- First failing test: `Canaryd.Setup.agent_specs/1` returns only the five-minute full-check agent.
+- First failing test: `Canaryd.Setup.agent_specs/1` returns exactly one interval-based full-check agent.
 - Follow-up test: setup exposes the obsolete thermal label for migration cleanup.
 
 Acceptance Evidence:
 - `Canaryd.SetupTest` schedule and migration-policy tests.
-- Local launchd output showing only `com.thaddeusjiang.canaryd` loaded at a 300-second interval.
+- Local launchd output showing `com.thaddeusjiang.canaryd` loaded at a 300-second interval.
 
 ## Cross-Spec Links
 
 - [001 Unresponsive App Recovery](./001-unresponsive-app-recovery.md)
 - [004 Notification Identity](./004-notification-identity.md)
+- [009 Stale Build Cleanup](./009-stale-build-cleanup.md)
 
 ## Relationships
 

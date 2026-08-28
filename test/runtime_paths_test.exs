@@ -24,6 +24,8 @@ defmodule Canaryd.RuntimePathsTest do
   end
 
   test "resolves every user-specific path from the runtime home", %{runtime_home: runtime_home} do
+    assert Paths.home_dir() == runtime_home
+
     assert Store.dir() ==
              Path.join([runtime_home, "Library", "Application Support", "canaryd"])
 

@@ -8,7 +8,7 @@
   A quiet health monitor for developer Macs.
   <br>
   It catches stalled services, forgotten Simulators, silent utilities, heat,
-  and idle memory — then recovers what it safely can.
+  idle memory, and stale build output — then recovers what it safely can.
 </p>
 
 <p align="center">
@@ -39,8 +39,9 @@
 ---
 
 Canaryd is a local macOS watchdog. Every five minutes it checks real system and
-application behavior, confirms suspicious state before acting, and keeps
-successful background recovery quiet. State, events, and logs stay on the Mac.
+application behavior; once a day it reclaims validated stale build output. It
+confirms suspicious state before acting and keeps successful background
+recovery quiet. State, events, and logs stay on the Mac.
 
 ## Why Canaryd exists
 
@@ -197,9 +198,15 @@ Restart the shell, or run the `source` command printed by the installer, then:
 canaryd status
 ```
 
-The first command installs one launchd agent that runs the full health check
-every five minutes. Every later command verifies and repairs that agent when
-necessary. You do not need to manage plist files.
+The first command installs two launchd agents:
+
+| Agent | Schedule | Work |
+| --- | ---: | --- |
+| Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, and CleanClip |
+| Build cleanup | Daily at 04:00 | Remove validated Xcode DerivedData and Cargo target directories inactive for seven days |
+
+Every later command verifies and repairs both agents when necessary. You do
+not need to manage plist files.
 
 <details>
 <summary><strong>Manual archive, source, and Hex installation</strong></summary>
@@ -270,19 +277,21 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, or `apps` |
-| `canaryd install` | Reinstall and load the launchd agent |
-| `canaryd uninstall` | Remove the launchd agent and notification helper |
-| `canaryd --version` | Show the installed version without changing launchd state |
+| `canaryd clean` | Remove stale Xcode DerivedData and Cargo target directories now |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `builds`, or `apps` |
+| `canaryd install` | Reinstall and load the launchd agents |
+| `canaryd uninstall` | Remove the launchd agents and the notification helper |
+| `canaryd --version` | Show the installed version without changing the launchd agents |
 
 Examples:
 
 ```sh
 canaryd check
 canaryd history thermal
-canaryd history apps
 canaryd history memory
 canaryd history simulators
+canaryd history builds
+canaryd history apps
 ```
 
 ## Safety model
@@ -295,6 +304,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | GUI app hang | macOS Not Responding state in two consecutive rounds | Restart a supported third-party app in the background |
 | Idle high memory | 30 minutes of user inactivity and three low-CPU, 1 GB+ rounds | Request a graceful app close |
 | Idle Simulator | Sustained inactivity and three unchanged device observations | Shut down the exact booted UDID |
+| Stale build output | Complete tree inactive for seven days and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible real-history probe | Restart quietly; notify only when recovery is blocked |
 | System pressure | Three consecutive full checks | Send one system-degraded notification |
@@ -310,6 +320,11 @@ The shared safety rules are:
 - Simulator recovery never runs `erase`, `delete`, `reset`, or `shutdown all`.
 - Active current-user `xcodebuild` and `xctest` processes block Simulator
   shutdown.
+- Build cleanup pauses while related Xcode or Rust tools are active and removes
+  only validated, reproducible directories whose complete trees are at least
+  seven days old.
+- Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,
+  Simulator data, Cargo registry or git caches, installed binaries, or source.
 - App restart, prompt, and close actions use one-hour cooldowns.
 - Automatic termination can still interrupt background work or expose an
   unsaved-changes prompt.
@@ -321,6 +336,7 @@ For exact behavior, see the maintained feature specifications:
 - [Thermal process monitor](./docs/specs/003-thermal-process-monitor.md)
 - [Idle memory process monitor](./docs/specs/007-idle-memory-process-monitor.md)
 - [Idle Simulator shutdown](./docs/specs/008-idle-simulator-shutdown.md)
+- [Stale build cleanup](./docs/specs/009-stale-build-cleanup.md)
 
 ## Local data
 
@@ -335,13 +351,13 @@ Canaryd stores runtime data only on the Mac:
 ```
 
 `state.dets` contains current confirmation and cooldown state. `events.dets`
-contains the local recovery timeline. The log files contain launchd output.
-Canaryd does not store document content or process command-line arguments in
-its event history.
+contains the local recovery timeline, including build-cleanup actions. The log
+files contain launchd output. Canaryd does not store document content or process
+command-line arguments in its event history.
 
 ## Uninstall
 
-Remove the launchd agent and notification helper:
+Remove the launchd agents and the notification helper:
 
 ```sh
 canaryd uninstall

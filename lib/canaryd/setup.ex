@@ -1,16 +1,20 @@
 defmodule Canaryd.Setup do
   @moduledoc """
-  Self-installing launchd agent. launchd is an implementation detail:
-  users never touch plist files. Every CLI invocation ensures the agent
-  is present and loaded; if the user deletes it, the next run heals it.
+  Self-installing launchd agents. launchd is an implementation detail:
+  users never touch plist files. Every CLI invocation ensures the agents
+  are present and loaded; if the user deletes one, the next run heals it.
   """
 
   @label "com.thaddeusjiang.canaryd"
+  @build_cleanup_label "com.thaddeusjiang.canaryd.build-cleanup"
   @obsolete_agent_labels ["com.thaddeusjiang.canaryd.thermal"]
 
   alias Canaryd.{Duration, NotificationHelper, Paths}
 
   def label, do: @label
+
+  @doc false
+  def labels, do: [@label, @build_cleanup_label]
 
   @doc false
   def obsolete_agent_labels, do: @obsolete_agent_labels
@@ -22,6 +26,14 @@ defmodule Canaryd.Setup do
         label: @label,
         command: "check",
         interval: Duration.minutes(5),
+        run_at_load: true,
+        escript_path: escript_path
+      },
+      %{
+        label: @build_cleanup_label,
+        command: "clean",
+        calendar: %{hour: 4, minute: 0},
+        run_at_load: false,
         escript_path: escript_path
       }
     ]
@@ -164,10 +176,7 @@ defmodule Canaryd.Setup do
         <string>#{agent.escript_path}</string>
         <string>#{agent.command}</string>
       </array>
-      <key>StartInterval</key>
-      <integer>#{Duration.to_external(agent.interval, :second)}</integer>
-      <key>RunAtLoad</key>
-      <true/>
+      #{schedule_plist(agent)}#{run_at_load_plist(agent)}
       <key>StandardOutPath</key>
       <string>#{log_dir()}/stdout.log</string>
       <key>StandardErrorPath</key>
@@ -181,4 +190,32 @@ defmodule Canaryd.Setup do
     </plist>
     """
   end
+
+  defp schedule_plist(%{interval: interval}) do
+    """
+    <key>StartInterval</key>
+    <integer>#{Duration.to_external(interval, :second)}</integer>
+    """
+  end
+
+  defp schedule_plist(%{calendar: %{hour: hour, minute: minute}}) do
+    """
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>#{hour}</integer>
+      <key>Minute</key>
+      <integer>#{minute}</integer>
+    </dict>
+    """
+  end
+
+  defp run_at_load_plist(%{run_at_load: true}) do
+    """
+    <key>RunAtLoad</key>
+    <true/>
+    """
+  end
+
+  defp run_at_load_plist(_agent), do: ""
 end
