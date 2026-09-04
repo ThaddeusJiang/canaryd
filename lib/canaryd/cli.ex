@@ -261,7 +261,39 @@ defmodule Canaryd.CLI do
   defp history_target(_target), do: :unknown
 
   defp fmt(nil), do: "-"
-  defp fmt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+
+  defp fmt(%DateTime{} = datetime) do
+    format_datetime(datetime, local_utc_offset(datetime))
+  end
+
+  @doc false
+  def format_datetime(%DateTime{} = datetime, utc_offset) when is_integer(utc_offset) do
+    local = Duration.add(datetime, Duration.from_external(utc_offset, :second))
+    "#{Calendar.strftime(local, "%Y-%m-%d %H:%M:%S")} #{format_utc_offset(utc_offset)}"
+  end
+
+  defp local_utc_offset(datetime) do
+    universal = DateTime.to_naive(datetime)
+
+    local =
+      universal
+      |> NaiveDateTime.to_erl()
+      |> :calendar.universal_time_to_local_time()
+      |> NaiveDateTime.from_erl!()
+
+    local
+    |> NaiveDateTime.diff(universal, :millisecond)
+    |> Duration.to_external(:second)
+  end
+
+  defp format_utc_offset(utc_offset) do
+    sign = if utc_offset < 0, do: "-", else: "+"
+    total = div(abs(utc_offset), 60)
+    hour = total |> div(60) |> Integer.to_string() |> String.pad_leading(2, "0")
+    minute = total |> rem(60) |> Integer.to_string() |> String.pad_leading(2, "0")
+
+    "UTC#{sign}#{hour}:#{minute}"
+  end
 
   defp record_build_cleanup(result) do
     details = %{
