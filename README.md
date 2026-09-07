@@ -7,8 +7,9 @@
 <p align="center">
   A quiet health monitor for developer Macs.
   <br>
-  It catches stalled services, forgotten Simulators, silent utilities, heat,
-  idle memory, and stale build output — then recovers what it safely can.
+  It catches stalled services, forgotten Simulators and screen-control helpers,
+  silent utilities, heat, idle memory, and stale build output — then recovers
+  what it safely can.
 </p>
 
 <p align="center">
@@ -159,7 +160,8 @@ symbolic links or removes source, Archives, Simulator data, or Cargo caches.
 ## Status at a glance
 
 Run `canaryd status` to see current temperatures, CleanClip health, recent
-recovery events, pending app hangs, idle high-memory apps, and idle Simulators.
+recovery events, pending app hangs, idle high-memory apps, idle Simulators, and
+idle Codex screen-control helpers.
 
 ![Example Canaryd status output](./docs/assets/canaryd-status.svg)
 
@@ -221,7 +223,7 @@ The first command installs two launchd agents:
 
 | Agent | Schedule | Work |
 | --- | ---: | --- |
-| Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, and CleanClip |
+| Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
 | Build cleanup | Daily at 04:00 | Remove validated Xcode DerivedData and Cargo target directories inactive for seven days |
 
 Every later command verifies and repairs both agents when necessary. You do
@@ -277,7 +279,7 @@ mix escript.install --force ./canaryd
 ### Install the published Hex release
 
 ```sh
-mix escript.install hex canaryd 0.4.4
+mix escript.install hex canaryd 0.4.5
 ```
 
 Add the relevant install directory to `PATH` if the shell cannot find
@@ -297,7 +299,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Remove stale Xcode DerivedData and Cargo target directories now |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `builds`, or `apps` |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `builds`, or `apps` |
 | `canaryd install` | Reinstall and load the launchd agents |
 | `canaryd uninstall` | Remove the launchd agents and the notification helper |
 | `canaryd --version` | Show the installed version without changing the launchd agents |
@@ -309,6 +311,7 @@ canaryd check
 canaryd history thermal
 canaryd history memory
 canaryd history simulators
+canaryd history codex
 canaryd history builds
 canaryd history apps
 ```
@@ -323,6 +326,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | GUI app hang | macOS Not Responding state in two consecutive rounds | Restart a supported third-party app in the background |
 | Idle high memory | 30 minutes of user inactivity and three low-CPU, 1 GB+ rounds | Request a graceful app close |
 | Idle Simulator | Sustained inactivity and three unchanged device observations | Shut down the exact booted UDID |
+| Idle Codex screen control | 30 minutes of user inactivity and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Stale build output | Complete tree inactive for seven days and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible real-history probe | Restart quietly; notify only when recovery is blocked |
@@ -339,6 +343,11 @@ The shared safety rules are:
 - Simulator recovery never runs `erase`, `delete`, `reset`, or `shutdown all`.
 - Active current-user `xcodebuild` and `xctest` processes block Simulator
   shutdown.
+- Codex helper cleanup matches only fixed Computer Use, `node_repl`,
+  `unified-computer-use`, and `cua-driver mcp` signatures. It protects
+  `cua-driver serve`, unrelated Node.js processes, and the Codex app server.
+- Codex helper cleanup revalidates an exact PID, sends only `SIGTERM`, and never
+  stores the command line used for classification.
 - Build cleanup pauses while related Xcode or Rust tools are active and removes
   only validated, reproducible directories whose complete trees are at least
   seven days old.
@@ -356,6 +365,7 @@ For exact behavior, see the maintained feature specifications:
 - [Idle memory process monitor](./docs/specs/007-idle-memory-process-monitor.md)
 - [Idle Simulator shutdown](./docs/specs/008-idle-simulator-shutdown.md)
 - [Stale build cleanup](./docs/specs/009-stale-build-cleanup.md)
+- [Idle Codex process cleanup](./docs/specs/010-idle-codex-process-cleanup.md)
 
 ## Local data
 

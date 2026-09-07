@@ -12,6 +12,8 @@ defmodule Canaryd.Checker do
   """
 
   alias Canaryd.{
+    CodexProcessMonitor,
+    CodexProcesses,
     Duration,
     MemoryMonitor,
     MemoryProcesses,
@@ -35,12 +37,14 @@ defmodule Canaryd.Checker do
       thermal_monitor = check_thermal_processes(state, events, sys)
       memory_monitor = check_idle_memory_processes(state, events, idle)
       simulator_monitor = check_idle_simulators(state, events, idle)
+      codex_process_monitor = check_idle_codex_processes(state, events, idle)
 
       sys =
         sys
         |> Map.put(:thermal_monitor, thermal_monitor)
         |> Map.put(:memory_monitor, memory_monitor)
         |> Map.put(:simulator_monitor, simulator_monitor)
+        |> Map.put(:codex_process_monitor, codex_process_monitor)
 
       app_monitor = check_unresponsive_apps(state, events)
 
@@ -388,6 +392,106 @@ defmodule Canaryd.Checker do
 
   defp simulator_details(device) do
     Map.take(device, [:udid, :name, :runtime, :state, :last_used_at])
+  end
+
+  defp check_idle_codex_processes(state, events, idle_duration) do
+    monitor_state =
+      Store.get_value(state, :idle_codex_processes, CodexProcessMonitor.default_state())
+
+    if idle_duration >= CodexProcessMonitor.minimum_idle() do
+      case CodexProcesses.scan() do
+        {:ok, processes} ->
+          {new_monitor_state, actions} =
+            CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration)
+
+          Store.put_state(state, :idle_codex_processes, new_monitor_state)
+          results = Enum.map(actions, &{&1, run_codex_process_action(events, &1)})
+          notify_codex_process_results(results)
+
+          %{
+            status: :available,
+            detected: length(processes),
+            actions: Enum.map(results, &elem(&1, 1))
+          }
+
+        {:error, reason} ->
+          Store.put_state(
+            state,
+            :idle_codex_processes,
+            CodexProcessMonitor.reset_observations(monitor_state)
+          )
+
+          %{status: :unavailable, detected: 0, actions: [], reason: reason}
+      end
+    else
+      {new_monitor_state, []} =
+        CodexProcessMonitor.evaluate(monitor_state, [], idle_duration)
+
+      Store.put_state(state, :idle_codex_processes, new_monitor_state)
+      %{status: :skipped_active, detected: 0, actions: []}
+    end
+  end
+
+  defp run_codex_process_action(events, {:detected, process, count}) do
+    details = process |> codex_process_details() |> Map.put(:count, count)
+    Store.log_event(events, :codex_processes, :idle_detected, details)
+    :detected
+  end
+
+  defp run_codex_process_action(events, {:terminate, process}) do
+    with true <- System.idle_duration() >= CodexProcessMonitor.minimum_idle(),
+         :ok <- CodexProcesses.terminate(process) do
+      Store.log_event(events, :codex_processes, :terminated, codex_process_details(process))
+      :terminated
+    else
+      false ->
+        codex_process_termination_skipped(events, process, :user_activity_resumed)
+
+      :already_stopped ->
+        codex_process_termination_skipped(events, process, :already_stopped)
+
+      {:error, :process_identity_changed} ->
+        codex_process_termination_skipped(events, process, :process_identity_changed)
+
+      {:error, reason} ->
+        details = Map.put(codex_process_details(process), :reason, inspect(reason))
+        Store.log_event(events, :codex_processes, :termination_failed, details)
+        :termination_failed
+    end
+  end
+
+  defp codex_process_termination_skipped(events, process, reason) do
+    details = Map.put(codex_process_details(process), :reason, reason)
+    Store.log_event(events, :codex_processes, :termination_skipped, details)
+    :termination_skipped
+  end
+
+  defp notify_codex_process_results(results) do
+    terminated = Enum.count(results, &match?({{:terminate, _process}, :terminated}, &1))
+
+    failed =
+      Enum.count(results, &match?({{:terminate, _process}, :termination_failed}, &1))
+
+    if terminated > 0 do
+      Notifier.notify(
+        "Mac Health",
+        "Stopped #{terminated} idle Codex screen-control #{process_word(terminated)}."
+      )
+    end
+
+    if failed > 0 do
+      Notifier.notify(
+        "Mac Health",
+        "Could not stop #{failed} idle Codex screen-control #{process_word(failed)}."
+      )
+    end
+  end
+
+  defp process_word(1), do: "process"
+  defp process_word(_count), do: "processes"
+
+  defp codex_process_details(process) do
+    Map.take(process, [:id, :kind, :pid, :ppid, :name])
   end
 
   defp check_unresponsive_apps(state, events) do

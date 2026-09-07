@@ -4,6 +4,7 @@ defmodule Canaryd.CLI do
   alias Canaryd.{
     BuildCleanup,
     Checker,
+    CodexProcessMonitor,
     Duration,
     MemoryMonitor,
     SimulatorMonitor,
@@ -57,14 +58,16 @@ defmodule Canaryd.CLI do
           "idle #{Duration.to_external(idle, :second)}s, CleanClip probe skipped; " <>
             "system warnings: #{length(sys.warnings)}; " <>
             "#{thermal_summary(sys)}; #{memory_summary(sys)}; " <>
-            "#{simulator_summary(sys)}; #{app_check_summary(apps)}"
+            "#{simulator_summary(sys)}; #{codex_process_summary(sys)}; " <>
+            app_check_summary(apps)
         )
 
       {:checked, _idle, sys, cc, apps} ->
         IO.puts(
           "cleanclip: #{cc.probe} (#{cc.action}), failures=#{cc.failures}; " <>
             "system warnings: #{inspect(sys.warnings)}; #{thermal_summary(sys)}; " <>
-            "#{memory_summary(sys)}; #{simulator_summary(sys)}"
+            "#{memory_summary(sys)}; #{simulator_summary(sys)}; " <>
+            codex_process_summary(sys)
         )
 
         IO.puts(app_check_summary(apps))
@@ -121,6 +124,16 @@ defmodule Canaryd.CLI do
 
       pending_simulators = SimulatorMonitor.pending_devices(simulator_state)
       IO.puts("idle Simulators pending: #{format_simulators(pending_simulators)}")
+
+      codex_process_state =
+        Store.get_value(state, :idle_codex_processes, CodexProcessMonitor.default_state())
+
+      pending_codex_processes = CodexProcessMonitor.pending_processes(codex_process_state)
+
+      IO.puts(
+        "idle Codex screen-control processes: " <>
+          format_codex_processes(pending_codex_processes)
+      )
     end)
 
     IO.puts("\ncleanclip process alive: #{CleanClip.process_alive?()}")
@@ -168,7 +181,7 @@ defmodule Canaryd.CLI do
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
       canaryd clean              remove stale Xcode and Cargo build artifacts
-      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, builds, apps)
+      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, builds, apps)
       canaryd install            (re)install the launchd agents (usually automatic)
       canaryd uninstall          remove the launchd agents
       canaryd --version          show the installed version
@@ -203,6 +216,14 @@ defmodule Canaryd.CLI do
     Enum.map_join(devices, ", ", fn device -> "#{device.name} (#{device.udid})" end)
   end
 
+  defp format_codex_processes([]), do: "none"
+
+  defp format_codex_processes(processes) do
+    Enum.map_join(processes, ", ", fn process ->
+      "#{process.name} (PID #{process.pid})"
+    end)
+  end
+
   defp memory_summary(%{memory_monitor: %{status: :skipped_active}}) do
     "idle memory scan: waiting for 30 minutes of user inactivity"
   end
@@ -233,6 +254,19 @@ defmodule Canaryd.CLI do
     "idle Simulator scan unavailable"
   end
 
+  defp codex_process_summary(%{codex_process_monitor: %{status: :skipped_active}}) do
+    "idle Codex process scan: waiting for 30 minutes of user inactivity"
+  end
+
+  defp codex_process_summary(%{codex_process_monitor: %{status: :available} = monitor}) do
+    "idle Codex screen-control processes=#{monitor.detected}, " <>
+      "actions=#{inspect(monitor.actions)}"
+  end
+
+  defp codex_process_summary(%{codex_process_monitor: %{status: :unavailable}}) do
+    "idle Codex process scan unavailable"
+  end
+
   defp thermal_summary(%{thermal_pressure: false} = system) do
     "thermal pressure: normal; #{System.temperature_summary(system)}"
   end
@@ -256,6 +290,10 @@ defmodule Canaryd.CLI do
   defp history_target("thermal"), do: :thermal
   defp history_target("memory"), do: :memory
   defp history_target(target) when target in ["simulator", "simulators"], do: :simulators
+
+  defp history_target(target) when target in ["codex", "codex-processes"],
+    do: :codex_processes
+
   defp history_target(target) when target in ["build", "builds"], do: :builds
   defp history_target("apps"), do: :apps
   defp history_target(_target), do: :unknown
