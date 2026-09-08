@@ -80,7 +80,27 @@ or its data.
   <sub>Representative capture from macOS Notification Center.</sub>
 </p>
 
-### 3. CleanClip is alive, but it stopped recording
+### 3. Codex screen-control helpers multiply
+
+A real Activity Monitor snapshot showed twelve visible `SkyComputerUseClient`
+processes at once. A broad name-based cleanup would be easy to write, but it
+could terminate helpers that still belong to active work.
+
+Canaryd waits for 30 minutes of whole-Mac inactivity and requires the same
+supported process identity across three consecutive five-minute checks. Before
+acting, it rechecks inactivity plus the exact process kind, PID, and start time,
+then sends `SIGTERM` only. It never uses `pkill`, a name-only target, or
+`SIGKILL`.
+
+<p align="center">
+  <a href="./hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4?raw=1">
+    <img src="./hyperframes-src/codex-screen-control-cleanup/output/poster.png" width="860" alt="Activity Monitor shows twelve visible SkyComputerUseClient processes before Canaryd demonstrates its bounded cleanup policy">
+  </a>
+  <br>
+  <sub>Real Activity Monitor evidence in the opening; click the poster for the 17.5-second MP4. The cleanup sequence is a controlled demo.</sub>
+</p>
+
+### 4. CleanClip is alive, but it stopped recording
 
 In a real failure, CleanClip stayed running with 0% CPU and no crash report,
 but its clipboard history had not changed for more than two days. New copy
@@ -96,7 +116,7 @@ content always wins. A failed probe triggers a quiet restart.
   <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/cleanclip-functional-probe.png" width="860" alt="Canaryd detects that CleanClip is alive but its history is stale, runs a reversible functional probe, and confirms recovery">
 </p>
 
-### 4. An AI coding session heats the Mac
+### 5. An AI coding session heats the Mac
 
 Xcode can keep indexing, compiling, or running build services long after the
 developer expected the expensive work to finish. Simulator processes can add
@@ -117,7 +137,7 @@ exact heat attribution.
   <sub>Representative capture from macOS Notification Center.</sub>
 </p>
 
-### 5. Work is over, but a memory-heavy app is still open
+### 6. Work is over, but a memory-heavy app is still open
 
 Developer tools often use several processes, so one quiet application can hold
 far more memory than its main PID suggests. During one investigation, a
@@ -138,7 +158,7 @@ processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
   <sub>Representative recovery flow based on a real high-memory candidate.</sub>
 </p>
 
-### 6. AI agents finish, but their build output stays
+### 7. AI agents finish, but their build output stays
 
 Parallel coding agents can leave Xcode DerivedData and Cargo `target/`
 directories across projects and worktrees after their tasks are complete. The

@@ -1,0 +1,11 @@
+{
+  "name": "codex-screen-control-cleanup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.8.31 preview",
+    "check": "npx --yes hyperframes@0.8.31 check",
+    "render": "npx --yes hyperframes@0.8.31 render",
+    "publish": "npx --yes hyperframes@0.8.31 publish"
+  }
+}
