@@ -92,13 +92,15 @@ acting, it rechecks inactivity plus the exact process kind, PID, and start time,
 then sends `SIGTERM` only. It never uses `pkill`, a name-only target, or
 `SIGKILL`.
 
+<!-- codex-process-video:start -->
 <p align="center">
   <a href="./hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4?raw=1">
-    <img src="./hyperframes-src/codex-screen-control-cleanup/output/poster.png" width="860" alt="Activity Monitor shows twelve visible SkyComputerUseClient processes before Canaryd demonstrates its bounded cleanup policy">
+    <img src="./hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.gif" width="860" alt="Activity Monitor shows twelve visible SkyComputerUseClient processes before Canaryd demonstrates its bounded cleanup policy">
   </a>
   <br>
-  <sub>Real Activity Monitor evidence in the opening; click the poster for the 17.5-second MP4. The cleanup sequence is a controlled demo.</sub>
+  <sub>The 17.5-second demo plays inline. Click it for the MP4 with sound. The cleanup sequence is controlled.</sub>
 </p>
+<!-- codex-process-video:end -->
 
 ### 4. CleanClip is alive, but it stopped recording
 
