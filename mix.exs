@@ -3,25 +3,47 @@ defmodule Canaryd.MixProject do
 
   @story_publish "hyperframes-src/canaryd-core-stories/output/publish"
   @github_video ~r/<!-- canaryd-video:start -->.*?<!-- canaryd-video:end -->/s
+  @github_codex_video ~r/<!-- codex-process-video:start -->.*?<!-- codex-process-video:end -->/s
   @hexdocs_video """
   <div style="text-align: center;">
     <video
       controls
       playsinline
       preload="metadata"
-      poster="./hyperframes-src/canaryd-core-stories/output/publish/poster.png"
+      poster="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/canaryd-core-stories/output/publish/poster.png"
       style="width: 100%; max-width: 860px; height: auto;"
     >
       <source
-        src="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4"
+        src="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4"
         type="video/mp4"
       >
-      <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4">
+      <a href="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4">
         Download the Canaryd core story reel
       </a>
     </video>
     <br>
     <small>Canaryd's 20-second core story reel.</small>
+  </div>
+  """
+  @hexdocs_codex_video """
+  <div style="text-align: center;">
+    <video
+      controls
+      playsinline
+      preload="metadata"
+      poster="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/codex-screen-control-cleanup/output/poster.png"
+      style="width: 100%; max-width: 860px; height: auto;"
+    >
+      <source
+        src="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4"
+        type="video/mp4"
+      >
+      <a href="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4">
+        Download the Codex screen-control cleanup demo
+      </a>
+    </video>
+    <br>
+    <small>Real Activity Monitor evidence followed by a controlled cleanup demo.</small>
   </div>
   """
 
@@ -100,11 +122,17 @@ defmodule Canaryd.MixProject do
 
   defp generate_exdoc_readme! do
     source = File.read!("README.md")
-    rendered = Regex.replace(@github_video, source, @hexdocs_video)
 
-    if rendered == source do
-      raise "README.md is missing the Canaryd video markers"
+    unless Regex.match?(@github_video, source) do
+      raise "README.md is missing the Canaryd core video markers"
     end
+
+    unless Regex.match?(@github_codex_video, source) do
+      raise "README.md is missing the Codex process video markers"
+    end
+
+    rendered = Regex.replace(@github_video, source, @hexdocs_video)
+    rendered = Regex.replace(@github_codex_video, rendered, @hexdocs_codex_video)
 
     output = "tmp/exdoc/README.md"
     File.mkdir_p!(Path.dirname(output))
@@ -116,12 +144,13 @@ defmodule Canaryd.MixProject do
     output = "tmp/exdoc/story-assets"
     File.rm_rf!(output)
 
-    # HexDocs uses the MP4 player; omit the GitHub-only GIF to stay below 8 MB.
+    # HexDocs loads video media from an immutable CDN URL. Copy only the static
+    # story frames used elsewhere in the README to stay below the 8 MB limit.
     @story_publish
     |> Path.join("**/*")
     |> Path.wildcard()
     |> Enum.filter(&File.regular?/1)
-    |> Enum.reject(&(Path.extname(&1) == ".gif"))
+    |> Enum.filter(&(Path.dirname(&1) |> Path.basename() == "frames"))
     |> Enum.each(fn source ->
       target = Path.join(output, Path.relative_to(source, @story_publish))
       File.mkdir_p!(Path.dirname(target))
