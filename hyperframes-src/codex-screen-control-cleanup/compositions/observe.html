@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-id="scene-observe" data-composition-duration="5.2"><head></head>
+  <body>
+    <template>
+      <div data-hf-id="hf-neqk" id="scene-observe" data-composition-id="scene-observe" data-duration="5.2" data-width="1920" data-height="1080" data-fps="30">
+        <section data-hf-id="hf-9yjs" id="observe-content" class="clip scene" data-start="0" data-duration="5.2" data-track-index="1">
+          <div data-hf-id="hf-mndw" class="topbar"><div data-hf-id="hf-oojr" class="brand"><span data-hf-id="hf-a4yg" class="brand-name">canaryd</span></div><span data-hf-id="hf-qn1u" class="demo-label">controlled demo</span></div>
+          <div data-hf-id="hf-bw2x" class="observe-title"><h2 data-hf-id="hf-pocc">Observe. Don't guess.</h2><p data-hf-id="hf-ezm5">Whole-Mac inactivity gates every cleanup decision.</p></div>
+          <div data-hf-id="hf-1ms0" class="terminal">
+            <div data-hf-id="hf-b8ww" class="terminal-bar"><span data-hf-id="hf-xrnf" class="terminal-dot"></span><span data-hf-id="hf-9rej" class="terminal-dot"></span><span data-hf-id="hf-9d3i" class="terminal-dot"></span><span data-hf-id="hf-cnat" class="terminal-title">CANARYD / CODEX PROCESS MONITOR</span></div>
+            <div data-hf-id="hf-vv39" class="terminal-body">
+              <div data-hf-id="hf-32du" class="terminal-command"><span data-hf-id="hf-99ip" class="prompt">$</span>canaryd status</div>
+              <div data-hf-id="hf-4pun" class="terminal-line"><span data-hf-id="hf-t1q6" class="key">helper</span><span data-hf-id="hf-igxh" class="value">node_repl · demo pid 4312</span></div>
+              <div data-hf-id="hf-n9en" class="terminal-line"><span data-hf-id="hf-h53n" class="key">idle gate</span><span data-hf-id="hf-rfwv" class="value">30 minutes · whole Mac</span></div>
+              <div data-hf-id="hf-mv3m" class="terminal-line"><span data-hf-id="hf-fvsj" class="key">confirmation</span><span data-hf-id="hf-h4td" class="pending">3 checks · 5 minutes apart</span></div>
+              <div data-hf-id="hf-mgsl" class="terminal-line"><span data-hf-id="hf-kbw0" class="key">decision</span><span data-hf-id="hf-p6cr" class="good">pending exact identity verification</span></div>
+            </div>
+          </div>
+          <div data-hf-id="hf-wqv0" class="footer-rule"></div><div data-hf-id="hf-e7sd" class="footer-copy">supported helpers only · current user only</div>
+        </section>
+      </div>
+      <script>
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo(".observe-title", { opacity: 0, x: -90 }, { opacity: 1, x: 0, duration: 0.7, ease: "power3.out" }, 0.08);
+        tl.fromTo(".terminal", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.75, ease: "expo.out" }, 0.28);
+        tl.fromTo(".terminal-command", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }, 0.88);
+        document.querySelectorAll(".terminal-line").forEach((line, index) => {
+          tl.fromTo(line, { opacity: 0, x: -22 }, { opacity: 1, x: 0, duration: 0.36, ease: "power2.out" }, 1.25 + index * 0.66);
+        });
+        window.__timelines["scene-observe"] = tl;
+      </script>
+    </template>
+  </body>
+</html>

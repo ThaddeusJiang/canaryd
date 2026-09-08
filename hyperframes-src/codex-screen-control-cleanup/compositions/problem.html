@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-id="scene-problem" data-composition-duration="4"><head></head>
+  <body>
+    <template>
+      <div data-hf-id="hf-l4g1" id="scene-problem" data-composition-id="scene-problem" data-duration="4" data-width="1920" data-height="1080" data-fps="30">
+        <section data-hf-id="hf-7s7y" id="problem-content" class="clip scene" data-start="0" data-duration="4" data-track-index="1">
+          <div data-hf-id="hf-mndw" class="topbar"><div data-hf-id="hf-oojr" class="brand"><img data-hf-id="hf-r1et" src="assets/brand/canaryd-logo.png" alt=""><span data-hf-id="hf-a4yg" class="brand-name">canaryd</span></div><span data-hf-id="hf-xhmu" class="eyebrow">Codex process monitor</span></div>
+          <div data-hf-id="hf-7sj9" class="hook"><h1 data-hf-id="hf-k5da">Too many screen-control <span data-hf-id="hf-p9k4" class="accent">processes.</span></h1><p data-hf-id="hf-78yu" class="subcopy">One Activity Monitor snapshot shows the same Codex helper still alive, again and again.</p><div data-hf-id="hf-count" class="evidence-count"><strong data-hf-id="hf-count-number">12</strong><span data-hf-id="hf-count-copy">visible in one snapshot</span></div></div>
+          <div data-hf-id="hf-un0w" class="evidence-card">
+            <div data-hf-id="hf-shot-wrap" class="evidence-shot-wrap">
+              <img data-hf-id="hf-shot" class="evidence-shot" src="assets/screenshots/activity-monitor-skycomputeruseclient.jpg" alt="Activity Monitor showing repeated SkyComputerUseClient processes">
+              <div data-hf-id="hf-highlight" class="evidence-highlight">
+                <span data-hf-id="hf-corner-tl" class="evidence-corner tl"></span><span data-hf-id="hf-corner-tr" class="evidence-corner tr"></span><span data-hf-id="hf-corner-bl" class="evidence-corner bl"></span><span data-hf-id="hf-corner-br" class="evidence-corner br"></span>
+                <span data-hf-id="hf-evidence-label" class="evidence-label">SKYCOMPUTERUSECLIENT × 12</span>
+                <span data-hf-id="hf-scan" class="evidence-scan"></span>
+              </div>
+            </div>
+          </div>
+          <div data-hf-id="hf-wqv0" class="footer-rule"></div><div data-hf-id="hf-avxe" class="footer-copy">monitor first · fail closed</div>
+        </section>
+      </div>
+      <script>
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo(".evidence-highlight", { autoAlpha: 0, scale: 0.96 }, { autoAlpha: 1, scale: 1, duration: 0.42, ease: "back.out(1.5)" }, 2.0);
+        tl.fromTo(".evidence-scan", { y: 0 }, { y: 292, duration: 1.0, ease: "power2.inOut" }, 2.18);
+        tl.fromTo(".evidence-count", { scale: 1 }, { scale: 1.045, duration: 0.22, repeat: 1, yoyo: true, ease: "power2.out" }, 2.86);
+        window.__timelines["scene-problem"] = tl;
+      </script>
+    </template>
+  </body>
+</html>

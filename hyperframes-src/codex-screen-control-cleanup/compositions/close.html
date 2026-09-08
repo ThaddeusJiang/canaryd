@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-id="scene-close" data-composition-duration="3.8"><head></head>
+  <body>
+    <template>
+      <div data-hf-id="hf-21mo" id="scene-close" data-composition-id="scene-close" data-duration="3.8" data-width="1920" data-height="1080" data-fps="30">
+        <section data-hf-id="hf-ah38" id="close-content" class="clip scene" data-start="0" data-duration="3.8" data-track-index="1">
+          <div data-hf-id="hf-xtbn" class="close-lockup"><img data-hf-id="hf-0e5s" class="close-logo" src="assets/brand/canaryd-logo.png" alt="Canaryd"><div data-hf-id="hf-lipe" class="close-wordmark">canaryd<span data-hf-id="hf-1nr0" class="period">.</span></div><p data-hf-id="hf-cit8" class="close-tagline">Clean up the abandoned. Leave active work alone.</p><p data-hf-id="hf-ya7i" class="close-detail">Codex screen-control cleanup · v0.4.5</p></div>
+        </section>
+      </div>
+      <script>
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo(".close-logo", { scale: 0.76 }, { scale: 1, duration: 0.75, ease: "back.out(1.35)" }, 0);
+        tl.fromTo(".close-wordmark", { opacity: 0, y: 58 }, { opacity: 1, y: 0, duration: 0.9, ease: "expo.out" }, 0.2);
+        tl.fromTo(".close-tagline", { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.72, ease: "power3.out" }, 0.65);
+        tl.fromTo(".close-detail", { opacity: 0 }, { opacity: 1, duration: 0.65, ease: "power2.out" }, 1.08);
+        window.__timelines["scene-close"] = tl;
+      </script>
+    </template>
+  </body>
+</html>

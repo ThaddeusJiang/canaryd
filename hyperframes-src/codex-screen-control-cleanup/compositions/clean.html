@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" data-composition-id="scene-clean" data-composition-duration="4.5"><head></head>
+  <body>
+    <template>
+      <div data-hf-id="hf-rxc6" id="scene-clean" data-composition-id="scene-clean" data-duration="4.5" data-width="1920" data-height="1080" data-fps="30">
+        <section data-hf-id="hf-j505" id="clean-content" class="clip scene" data-start="0" data-duration="4.5" data-track-index="1">
+          <div data-hf-id="hf-mndw" class="topbar"><div data-hf-id="hf-oojr" class="brand"><span data-hf-id="hf-a4yg" class="brand-name">canaryd</span></div><span data-hf-id="hf-qn1u" class="demo-label">controlled demo</span></div>
+          <div data-hf-id="hf-8xpi" class="clean-title"><h2 data-hf-id="hf-a2ih">Same process. Safe signal.</h2><p data-hf-id="hf-9p5q">Canaryd re-scans the exact identity immediately before action.</p></div>
+          <div data-hf-id="hf-0b25" class="identity-card">
+            <div data-hf-id="hf-ndg9" class="identity-head"><span data-hf-id="hf-qyym" class="identity-kind">node_repl</span><span data-hf-id="hf-cpah" class="identity-id">kind + pid + process start</span></div>
+            <div data-hf-id="hf-iuj9" class="check-rail"><span data-hf-id="hf-783v" class="check-chip">OBSERVED 1/3</span><span data-hf-id="hf-zo87" class="check-arrow">→</span><span data-hf-id="hf-9842" class="check-chip">OBSERVED 2/3</span><span data-hf-id="hf-9wjr" class="check-arrow">→</span><span data-hf-id="hf-jj3h" class="check-chip">OBSERVED 3/3</span></div>
+            <div data-hf-id="hf-y6ib" class="signal-row"><span data-hf-id="hf-ixro" class="signal-rule">identity match · no SIGKILL</span><span data-hf-id="hf-cc2k" class="signal-badge">SIGTERM SENT</span></div>
+          </div>
+          <div data-hf-id="hf-zjoe" class="controlled-footnote">* representative identifier; no real process was terminated</div>
+          <div data-hf-id="hf-wqv0" class="footer-rule"></div><div data-hf-id="hf-hgfv" class="footer-copy">re-scan → exact match → sigterm</div>
+        </section>
+      </div>
+      <script>
+        const tl = gsap.timeline({ paused: true });
+        tl.fromTo(".clean-title", { opacity: 0, y: -46 }, { opacity: 1, y: 0, duration: 0.65, ease: "power3.out" }, 0.08);
+        tl.fromTo(".identity-card", { opacity: 0, scale: 0.94 }, { opacity: 1, scale: 1, duration: 0.72, ease: "back.out(1.25)" }, 0.28);
+        document.querySelectorAll(".check-chip").forEach((chip, index) => {
+          tl.to(chip, { color: "#071017", backgroundColor: "#ffc928", borderColor: "#ffc928", scale: 1.045, duration: 0.18, ease: "power2.out" }, 0.95 + index * 0.68);
+          tl.to(chip, { scale: 1, duration: 0.16, ease: "power2.inOut" }, 1.13 + index * 0.68);
+        });
+        tl.fromTo(".signal-badge", { opacity: 0, scale: 0.72 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.8)" }, 2.58);
+        tl.fromTo(".signal-rule", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out" }, 2.3);
+        window.__timelines["scene-clean"] = tl;
+      </script>
+    </template>
+  </body>
+</html>
