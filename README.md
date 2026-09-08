@@ -29,7 +29,7 @@
 
 <!-- readme-video:start -->
 <p align="center">
-  <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4?raw=1">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4?raw=1" data-poster="./hyperframes-src/canaryd-core-stories/output/publish/poster.png">
     <img src="./hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.gif" width="860" alt="Canaryd recovers six common developer-Mac problems">
   </a>
   <br>
@@ -58,9 +58,15 @@ identity, confirms the hang twice, stops only the stale instance, and waits for
 a replacement PID. It does not restart the editor, switch apps, or show a
 foreground alert.
 
+<!-- readme-video:start -->
 <p align="center">
-  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/cursoruiviewservice-recovery.png" width="860" alt="CursorUIViewService changes from Not Responding to a replacement process after quiet Canaryd recovery">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/stories/cursoruiviewservice-recovery/cursoruiviewservice-recovery.mp4?raw=1" data-poster="./hyperframes-src/canaryd-core-stories/output/publish/frames/cursoruiviewservice-recovery.png">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/stories/cursoruiviewservice-recovery/cursoruiviewservice-recovery.gif" width="860" alt="CursorUIViewService changes from Not Responding to a replacement process after quiet Canaryd recovery">
+  </a>
+  <br>
+  <sub>The recovery story plays inline. Click it for the MP4.</sub>
 </p>
+<!-- readme-video:end -->
 
 ### 2. An AI agent finishes, but its Simulators keep running
 
@@ -73,6 +79,16 @@ Canaryd waits for sustained inactivity, pauses while the current user has an
 active `xcodebuild` or `xctest` process, and revalidates the exact device before
 running `simctl shutdown <UDID>`. It never erases, deletes, or resets the device
 or its data.
+
+<!-- readme-video:start -->
+<p align="center">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/stories/idle-simulators/idle-simulators.mp4?raw=1" data-poster="./docs/assets/notifications/simulators-shut-down.png">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/stories/idle-simulators/idle-simulators.gif" width="860" alt="Canaryd shuts down three validated idle Simulators after an AI agent finishes">
+  </a>
+  <br>
+  <sub>The idle-Simulator story plays inline. Click it for the MP4.</sub>
+</p>
+<!-- readme-video:end -->
 
 <p align="center">
   <img src="./docs/assets/notifications/simulators-shut-down.png" width="430" alt="Canaryd notification showing idle Simulators shut down">
@@ -94,7 +110,7 @@ then sends `SIGTERM` only. It never uses `pkill`, a name-only target, or
 
 <!-- readme-video:start -->
 <p align="center">
-  <a href="./hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4?raw=1">
+  <a href="./hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4?raw=1" data-poster="./hyperframes-src/codex-screen-control-cleanup/output/poster.png">
     <img src="./hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.gif" width="860" alt="Activity Monitor shows twelve visible SkyComputerUseClient processes before Canaryd demonstrates its bounded cleanup policy">
   </a>
   <br>
@@ -114,9 +130,15 @@ matching content appears in history. It saves every current pasteboard item and
 data type first. If the user copies something during the probe, the newer user
 content always wins. A failed probe triggers a quiet restart.
 
+<!-- readme-video:start -->
 <p align="center">
-  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/cleanclip-functional-probe.png" width="860" alt="Canaryd detects that CleanClip is alive but its history is stale, runs a reversible functional probe, and confirms recovery">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/stories/cleanclip-functional-probe/cleanclip-functional-probe.mp4?raw=1" data-poster="./hyperframes-src/canaryd-core-stories/output/publish/frames/cleanclip-functional-probe.png">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/stories/cleanclip-functional-probe/cleanclip-functional-probe.gif" width="860" alt="Canaryd detects that CleanClip is alive but its history is stale, runs a reversible functional probe, and confirms recovery">
+  </a>
+  <br>
+  <sub>The functional-health story plays inline. Click it for the MP4.</sub>
 </p>
+<!-- readme-video:end -->
 
 ### 5. An AI coding session heats the Mac
 
@@ -132,6 +154,16 @@ then lists up to five processes using at least 20% CPU. A safe top-level app can
 receive Close and Restart actions; a runtime or system process is reported as
 a suspect without an automatic action. CPU use is correlation evidence, not
 exact heat attribution.
+
+<!-- readme-video:start -->
+<p align="center">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/stories/thermal-pressure/thermal-pressure.mp4?raw=1" data-poster="./docs/assets/notifications/thermal-action.png">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/stories/thermal-pressure/thermal-pressure.gif" width="860" alt="Canaryd reports thermal pressure, contributing processes, and safe actions after a coding session">
+  </a>
+  <br>
+  <sub>The thermal-pressure story plays inline. Click it for the MP4.</sub>
+</p>
+<!-- readme-video:end -->
 
 <p align="center">
   <img src="./docs/assets/notifications/thermal-action.png" width="430" alt="Canaryd high-temperature notification showing Xcode and Simulator as CPU-related heat suspects with Close and Restart actions">
@@ -154,11 +186,15 @@ or above 1 GB RSS and at or below 1% CPU for three consecutive checks. Canaryd
 then requests a graceful close. It protects the active app, Apple apps, system
 processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
 
+<!-- readme-video:start -->
 <p align="center">
-  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/idle-memory-recovery.png" width="860" alt="Canaryd confirms that a third-party app is inactive, using more than one gigabyte of memory, and safe to close gracefully">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/stories/idle-memory-recovery/idle-memory-recovery.mp4?raw=1" data-poster="./hyperframes-src/canaryd-core-stories/output/publish/frames/idle-memory-recovery.png">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/stories/idle-memory-recovery/idle-memory-recovery.gif" width="860" alt="Canaryd confirms that a third-party app is inactive, using more than one gigabyte of memory, and safe to close gracefully">
+  </a>
   <br>
-  <sub>Representative recovery flow based on a real high-memory candidate.</sub>
+  <sub>The idle-memory story plays inline. Click it for the MP4. It is based on a real high-memory candidate.</sub>
 </p>
+<!-- readme-video:end -->
 
 ### 7. AI agents finish, but their build output stays
 
@@ -173,11 +209,15 @@ skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
 and skips Rust cleanup while `cargo` or `rustc` is active. It never follows
 symbolic links or removes source, Archives, Simulator data, or Cargo caches.
 
+<!-- readme-video:start -->
 <p align="center">
-  <img src="./hyperframes-src/canaryd-core-stories/output/publish/frames/stale-build-cleanup.png" width="860" alt="Canaryd validates stale Xcode DerivedData and Cargo target directories before removing only reproducible build output">
+  <a href="./hyperframes-src/canaryd-core-stories/output/publish/stories/stale-build-cleanup/stale-build-cleanup.mp4?raw=1" data-poster="./hyperframes-src/canaryd-core-stories/output/publish/frames/stale-build-cleanup.png">
+    <img src="./hyperframes-src/canaryd-core-stories/output/publish/stories/stale-build-cleanup/stale-build-cleanup.gif" width="860" alt="Canaryd validates stale Xcode DerivedData and Cargo target directories before removing only reproducible build output">
+  </a>
   <br>
-  <sub>Representative safety flow based on the maintained build-cleanup specification.</sub>
+  <sub>The build-cleanup story plays inline. Click it for the MP4. It follows the maintained cleanup specification.</sub>
 </p>
+<!-- readme-video:end -->
 
 ## Status at a glance
 

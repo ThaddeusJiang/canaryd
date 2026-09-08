@@ -1,13 +1,12 @@
 defmodule Canaryd.MixProject do
   use Mix.Project
 
-  @story_publish "hyperframes-src/canaryd-core-stories/output/publish"
-  @video_asset_ref "3a0e06a53c898c39d4704be53a58ca3051a502ea"
+  @video_asset_ref "eafed5aa52a82c409a7b220a090e64eb1788c70f"
   @video_cdn "https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@#{@video_asset_ref}"
   @github_video ~r{
     <!--\ readme-video:start\ -->\s*
     <p\ align="center">\s*
-      <a\ href="\./(?<mp4>[^"]+\.mp4)\?raw=1">\s*
+      <a\ href="\./(?<mp4>[^"]+\.mp4)\?raw=1"\ data-poster="\./(?<poster>[^"]+\.png)">\s*
         <img\ src="\./(?<gif>[^"]+\.gif)"\ width="860"\ alt="[^"]+">\s*
       </a>\s*
       <br>\s*
@@ -72,7 +71,6 @@ defmodule Canaryd.MixProject do
 
   defp docs do
     exdoc_readme = generate_exdoc_readme!()
-    exdoc_story_assets = generate_exdoc_story_assets!()
 
     [
       main: "readme",
@@ -84,10 +82,7 @@ defmodule Canaryd.MixProject do
         "Canaryd.NotificationHelper",
         "Canaryd.Setup.agent_specs/1"
       ],
-      assets: %{
-        "docs/assets" => "docs/assets",
-        exdoc_story_assets => @story_publish
-      }
+      assets: %{"docs/assets" => "docs/assets"}
     ]
   end
 
@@ -101,8 +96,8 @@ defmodule Canaryd.MixProject do
     end
 
     rendered =
-      Regex.replace(@github_video, source, fn _block, mp4, _gif, caption ->
-        hexdocs_video(mp4, caption)
+      Regex.replace(@github_video, source, fn _block, mp4, poster, _gif, caption ->
+        hexdocs_video(mp4, poster, caption)
       end)
 
     output = "tmp/exdoc/README.md"
@@ -113,9 +108,9 @@ defmodule Canaryd.MixProject do
 
   defp count_matches(regex, source), do: length(Regex.scan(regex, source))
 
-  defp hexdocs_video(mp4, caption) do
+  defp hexdocs_video(mp4, poster, caption) do
     video_url = "#{@video_cdn}/#{mp4}"
-    poster_url = "#{@video_cdn}/#{Path.join(Path.dirname(mp4), "poster.png")}"
+    poster_url = "#{@video_cdn}/#{poster}"
 
     """
     <div style="text-align: center;">
@@ -133,26 +128,6 @@ defmodule Canaryd.MixProject do
       <small>#{caption}</small>
     </div>
     """
-  end
-
-  defp generate_exdoc_story_assets! do
-    output = "tmp/exdoc/story-assets"
-    File.rm_rf!(output)
-
-    # HexDocs loads video media from an immutable CDN URL. Copy only the static
-    # story frames used elsewhere in the README to stay below the 8 MB limit.
-    @story_publish
-    |> Path.join("**/*")
-    |> Path.wildcard()
-    |> Enum.filter(&File.regular?/1)
-    |> Enum.filter(&(Path.dirname(&1) |> Path.basename() == "frames"))
-    |> Enum.each(fn source ->
-      target = Path.join(output, Path.relative_to(source, @story_publish))
-      File.mkdir_p!(Path.dirname(target))
-      File.cp!(source, target)
-    end)
-
-    output
   end
 
   defp package do
