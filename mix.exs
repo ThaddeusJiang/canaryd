@@ -2,50 +2,21 @@ defmodule Canaryd.MixProject do
   use Mix.Project
 
   @story_publish "hyperframes-src/canaryd-core-stories/output/publish"
-  @github_video ~r/<!-- canaryd-video:start -->.*?<!-- canaryd-video:end -->/s
-  @github_codex_video ~r/<!-- codex-process-video:start -->.*?<!-- codex-process-video:end -->/s
-  @hexdocs_video """
-  <div style="text-align: center;">
-    <video
-      controls
-      playsinline
-      preload="metadata"
-      poster="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/canaryd-core-stories/output/publish/poster.png"
-      style="width: 100%; max-width: 860px; height: auto;"
-    >
-      <source
-        src="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4"
-        type="video/mp4"
-      >
-      <a href="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/canaryd-core-stories/output/publish/canaryd-core-stories.mp4">
-        Download the Canaryd core story reel
-      </a>
-    </video>
-    <br>
-    <small>Canaryd's 20-second core story reel.</small>
-  </div>
-  """
-  @hexdocs_codex_video """
-  <div style="text-align: center;">
-    <video
-      controls
-      playsinline
-      preload="metadata"
-      poster="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/codex-screen-control-cleanup/output/poster.png"
-      style="width: 100%; max-width: 860px; height: auto;"
-    >
-      <source
-        src="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4"
-        type="video/mp4"
-      >
-      <a href="https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@3a0e06a53c898c39d4704be53a58ca3051a502ea/hyperframes-src/codex-screen-control-cleanup/output/codex-screen-control-cleanup.mp4">
-        Download the Codex screen-control cleanup demo
-      </a>
-    </video>
-    <br>
-    <small>Real Activity Monitor evidence followed by a controlled cleanup demo.</small>
-  </div>
-  """
+  @video_asset_ref "3a0e06a53c898c39d4704be53a58ca3051a502ea"
+  @video_cdn "https://cdn.jsdelivr.net/gh/ThaddeusJiang/canaryd@#{@video_asset_ref}"
+  @github_video ~r{
+    <!--\ readme-video:start\ -->\s*
+    <p\ align="center">\s*
+      <a\ href="\./(?<mp4>[^"]+\.mp4)\?raw=1">\s*
+        <img\ src="\./(?<gif>[^"]+\.gif)"\ width="860"\ alt="[^"]+">\s*
+      </a>\s*
+      <br>\s*
+      <sub>(?<caption>.*?)</sub>\s*
+    </p>\s*
+    <!--\ readme-video:end\ -->
+  }sx
+  @github_mp4 ~r{href="\./[^\"]+\.mp4\?raw=1"}
+  @github_gif ~r{<img\ src="\./[^\"]+\.gif"}
 
   def project do
     [
@@ -122,22 +93,46 @@ defmodule Canaryd.MixProject do
 
   defp generate_exdoc_readme! do
     source = File.read!("README.md")
+    video_count = length(Regex.scan(@github_video, source))
 
-    unless Regex.match?(@github_video, source) do
-      raise "README.md is missing the Canaryd core video markers"
+    unless video_count > 0 and video_count == count_matches(@github_mp4, source) and
+             video_count == count_matches(@github_gif, source) do
+      raise "every README video must use the readme-video GIF-to-MP4 block"
     end
 
-    unless Regex.match?(@github_codex_video, source) do
-      raise "README.md is missing the Codex process video markers"
-    end
-
-    rendered = Regex.replace(@github_video, source, @hexdocs_video)
-    rendered = Regex.replace(@github_codex_video, rendered, @hexdocs_codex_video)
+    rendered =
+      Regex.replace(@github_video, source, fn _block, mp4, _gif, caption ->
+        hexdocs_video(mp4, caption)
+      end)
 
     output = "tmp/exdoc/README.md"
     File.mkdir_p!(Path.dirname(output))
     File.write!(output, rendered)
     output
+  end
+
+  defp count_matches(regex, source), do: length(Regex.scan(regex, source))
+
+  defp hexdocs_video(mp4, caption) do
+    video_url = "#{@video_cdn}/#{mp4}"
+    poster_url = "#{@video_cdn}/#{Path.join(Path.dirname(mp4), "poster.png")}"
+
+    """
+    <div style="text-align: center;">
+      <video
+        controls
+        playsinline
+        preload="metadata"
+        poster="#{poster_url}"
+        style="width: 100%; max-width: 860px; height: auto;"
+      >
+        <source src="#{video_url}" type="video/mp4">
+        <a href="#{video_url}">Download the MP4 video</a>
+      </video>
+      <br>
+      <small>#{caption}</small>
+    </div>
+    """
   end
 
   defp generate_exdoc_story_assets! do
