@@ -155,7 +155,7 @@ Then:
 ### BDD-04 Run once daily at 04:00
 
 Given:
-- Canaryd installs or self-heals its launchd configuration.
+- The user runs `canaryd start` to install or refresh its launchd configuration.
 
 When:
 - The launchd agents are rendered.

@@ -7,6 +7,7 @@ defmodule Canaryd.CLI do
     CodexProcessMonitor,
     Duration,
     MemoryMonitor,
+    NotificationHelper,
     PlaywrightBrowserMonitor,
     SimulatorMonitor,
     Setup,
@@ -18,18 +19,43 @@ defmodule Canaryd.CLI do
 
   alias Canaryd.Apps.CleanClip
 
-  def main(argv, options \\ []) do
-    # launchd is an implementation detail: self-heal on every invocation
-    unless argv in [["--version"], ["version"], ["uninstall"]] do
-      ensure_installed = Keyword.get(options, :ensure_installed, &Setup.ensure_installed/0)
-      ensure_installed.()
-    end
+  def main(argv, options \\ [])
 
-    build_cleanup = Keyword.get(options, :build_cleanup, &BuildCleanup.run/0)
-    dispatch(argv, build_cleanup)
+  def main([command] = argv, options) when command in ["check", "thermal-check", "clean"] do
+    ensure_helper =
+      Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
+
+    case ensure_helper.() do
+      :ok -> dispatch(argv, options)
+      {:error, reason} -> IO.puts("#{command} failed: #{inspect(reason)}")
+    end
   end
 
-  defp dispatch(["clean"], build_cleanup) do
+  def main(argv, options) do
+    dispatch(argv, options)
+  end
+
+  defp dispatch([command], options) when command in ["start", "install"] do
+    start = Keyword.get(options, :start, &Setup.install/0)
+
+    case start.() do
+      :ok -> IO.puts("background monitoring started")
+      {:error, reason} -> IO.puts("start failed: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch([command], options) when command in ["stop", "uninstall"] do
+    stop = Keyword.get(options, :stop, &Setup.uninstall/0)
+
+    case stop.() do
+      :ok -> IO.puts("background monitoring stopped")
+      {:error, reason} -> IO.puts("stop failed: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch(["clean"], options) do
+    build_cleanup = Keyword.get(options, :build_cleanup, &BuildCleanup.run/0)
+
     case build_cleanup.() do
       {:ok, result} ->
         record_build_cleanup(result)
@@ -43,7 +69,7 @@ defmodule Canaryd.CLI do
     end
   end
 
-  defp dispatch(argv, _build_cleanup), do: dispatch(argv)
+  defp dispatch(argv, _options), do: dispatch(argv)
 
   defp dispatch([command]) when command in ["--version", "version"] do
     IO.puts("canaryd #{Application.spec(:canaryd, :vsn)}")
@@ -174,21 +200,6 @@ defmodule Canaryd.CLI do
     end)
   end
 
-  defp dispatch(["install"]) do
-    case Setup.install() do
-      :ok ->
-        IO.puts("launchd agents installed (#{Enum.join(Setup.labels(), ", ")})")
-
-      {:error, err} ->
-        IO.puts("install failed: #{err}")
-    end
-  end
-
-  defp dispatch(["uninstall"]) do
-    Setup.uninstall()
-    IO.puts("launchd agents removed")
-  end
-
   defp dispatch(_argv) do
     IO.puts("""
     canaryd - Mac health monitor
@@ -199,8 +210,8 @@ defmodule Canaryd.CLI do
       canaryd status             current health snapshot
       canaryd clean              remove stale Xcode/Cargo artifacts and orphaned Bazel caches
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
-      canaryd install            (re)install the launchd agents (usually automatic)
-      canaryd uninstall          remove the launchd agents
+      canaryd start              start background monitoring (also after login)
+      canaryd stop               stop background monitoring until the next start
       canaryd --version          show the installed version
     """)
   end

@@ -134,7 +134,7 @@ Given:
 - canaryd may have the current full-check agent and the obsolete dedicated thermal agent installed.
 
 When:
-- canaryd installs or self-heals its launchd configuration.
+- The user runs `canaryd start` to install or refresh its launchd configuration.
 
 Then:
 - canaryd keeps one full-check agent with a five-minute interval.

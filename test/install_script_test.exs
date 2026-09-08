@@ -11,6 +11,7 @@ defmodule Canaryd.InstallScriptTest do
 
     assert status == 0
     assert output =~ "Installed canaryd 0.2.0"
+    assert output =~ "run: canaryd start"
     assert File.read!(Path.join(fixture.install_dir, "canaryd")) =~ "canaryd 0.2.0"
     assert Bitwise.band(File.stat!(Path.join(fixture.install_dir, "canaryd")).mode, 0o111) != 0
   end

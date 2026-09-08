@@ -14,7 +14,7 @@ possible.
 - Install only the latest stable Canaryd GitHub Release.
 - Do not fall back to a GitHub branch, tag, or commit.
 - Do not use `sudo`.
-- Do not run `canaryd uninstall`.
+- Do not run `canaryd stop` or its compatibility alias `canaryd uninstall` during installation.
 - Do not delete Canaryd state, events, logs, or unrelated launchd agents.
 - Stop and explain the problem when a required command fails.
 - Ask the user to complete any macOS approval dialog.
@@ -95,7 +95,7 @@ Rewrite and load the launchd agents with the installed executable:
 
 ```sh
 "$HOME/.local/bin/canaryd" --version
-"$HOME/.local/bin/canaryd" install
+"$HOME/.local/bin/canaryd" start
 "$HOME/.local/bin/canaryd" status
 launchctl print "gui/$(id -u)/com.thaddeusjiang.canaryd"
 launchctl print "gui/$(id -u)/com.thaddeusjiang.canaryd.build-cleanup"
@@ -127,3 +127,6 @@ canaryd history memory
 canaryd history builds
 canaryd history apps
 ```
+
+Use `canaryd stop` to stop background monitoring and `canaryd start` to resume.
+Status and history queries do not start the background tasks.
