@@ -341,7 +341,7 @@ mix escript.install --force ./canaryd
 ### Install the published Hex release
 
 ```sh
-mix escript.install hex canaryd 0.4.5
+mix escript.install hex canaryd 0.4.6
 ```
 
 Add the relevant install directory to `PATH` if the shell cannot find
