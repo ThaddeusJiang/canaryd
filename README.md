@@ -222,8 +222,8 @@ symbolic links or removes source, Archives, Simulator data, or Cargo caches.
 ## Status at a glance
 
 Run `canaryd status` to see current temperatures, CleanClip health, recent
-recovery events, pending app hangs, idle high-memory apps, idle Simulators, and
-idle Codex screen-control helpers.
+recovery events, pending app hangs, idle high-memory apps, idle Simulators,
+idle Codex screen-control helpers, and leftover Playwright Chrome for Testing.
 
 ![Example Canaryd status output](./docs/assets/canaryd-status.svg)
 
@@ -361,7 +361,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Remove stale Xcode DerivedData and Cargo target directories now |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `builds`, or `apps` |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd install` | Reinstall and load the launchd agents |
 | `canaryd uninstall` | Remove the launchd agents and the notification helper |
 | `canaryd --version` | Show the installed version without changing the launchd agents |
@@ -374,6 +374,7 @@ canaryd history thermal
 canaryd history memory
 canaryd history simulators
 canaryd history codex
+canaryd history playwright
 canaryd history builds
 canaryd history apps
 ```
@@ -389,6 +390,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | Idle high memory | 30 minutes of user inactivity and three low-CPU, 1 GB+ rounds | Request a graceful app close |
 | Idle Simulator | Sustained inactivity and three unchanged device observations | Shut down the exact booted UDID |
 | Idle Codex screen control | 30 minutes of user inactivity and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
+| Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Stale build output | Complete tree inactive for seven days and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible real-history probe | Restart quietly; notify only when recovery is blocked |
@@ -410,6 +412,12 @@ The shared safety rules are:
   `cua-driver serve`, unrelated Node.js processes, and the Codex app server.
 - Codex helper cleanup revalidates an exact PID, sends only `SIGTERM`, and never
   stores the command line used for classification.
+- Playwright Chrome cleanup matches only the main Chrome for Testing binary
+  under `Library/Caches/ms-playwright`. It protects Google Chrome, Dia,
+  Clicknow, helpers, crashpad, the frontmost app, and active Playwright runners.
+  It does not wait for whole-Mac user idle.
+- Playwright Chrome cleanup revalidates an exact PID, sends only `SIGTERM`, and
+  never stores the command line used for classification.
 - Build cleanup pauses while related Xcode or Rust tools are active and removes
   only validated, reproducible directories whose complete trees are at least
   seven days old.
@@ -428,6 +436,7 @@ For exact behavior, see the maintained feature specifications:
 - [Idle Simulator shutdown](./docs/specs/008-idle-simulator-shutdown.md)
 - [Stale build cleanup](./docs/specs/009-stale-build-cleanup.md)
 - [Idle Codex process cleanup](./docs/specs/010-idle-codex-process-cleanup.md)
+- [Leftover Playwright Chrome cleanup](./docs/specs/011-idle-playwright-chrome-cleanup.md)
 
 ## Local data
 

@@ -7,6 +7,7 @@ defmodule Canaryd.CLI do
     CodexProcessMonitor,
     Duration,
     MemoryMonitor,
+    PlaywrightBrowserMonitor,
     SimulatorMonitor,
     Setup,
     Store,
@@ -59,6 +60,7 @@ defmodule Canaryd.CLI do
             "system warnings: #{length(sys.warnings)}; " <>
             "#{thermal_summary(sys)}; #{memory_summary(sys)}; " <>
             "#{simulator_summary(sys)}; #{codex_process_summary(sys)}; " <>
+            "#{playwright_browser_summary(sys)}; " <>
             app_check_summary(apps)
         )
 
@@ -67,7 +69,7 @@ defmodule Canaryd.CLI do
           "cleanclip: #{cc.probe} (#{cc.action}), failures=#{cc.failures}; " <>
             "system warnings: #{inspect(sys.warnings)}; #{thermal_summary(sys)}; " <>
             "#{memory_summary(sys)}; #{simulator_summary(sys)}; " <>
-            codex_process_summary(sys)
+            "#{codex_process_summary(sys)}; #{playwright_browser_summary(sys)}"
         )
 
         IO.puts(app_check_summary(apps))
@@ -134,6 +136,21 @@ defmodule Canaryd.CLI do
         "idle Codex screen-control processes: " <>
           format_codex_processes(pending_codex_processes)
       )
+
+      playwright_browser_state =
+        Store.get_value(
+          state,
+          :idle_playwright_browsers,
+          PlaywrightBrowserMonitor.default_state()
+        )
+
+      pending_playwright_browsers =
+        PlaywrightBrowserMonitor.pending_browsers(playwright_browser_state)
+
+      IO.puts(
+        "idle Playwright Chrome for Testing: " <>
+          format_playwright_browsers(pending_playwright_browsers)
+      )
     end)
 
     IO.puts("\ncleanclip process alive: #{CleanClip.process_alive?()}")
@@ -181,7 +198,7 @@ defmodule Canaryd.CLI do
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
       canaryd clean              remove stale Xcode and Cargo build artifacts
-      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, builds, apps)
+      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
       canaryd install            (re)install the launchd agents (usually automatic)
       canaryd uninstall          remove the launchd agents
       canaryd --version          show the installed version
@@ -221,6 +238,14 @@ defmodule Canaryd.CLI do
   defp format_codex_processes(processes) do
     Enum.map_join(processes, ", ", fn process ->
       "#{process.name} (PID #{process.pid})"
+    end)
+  end
+
+  defp format_playwright_browsers([]), do: "none"
+
+  defp format_playwright_browsers(browsers) do
+    Enum.map_join(browsers, ", ", fn browser ->
+      "#{browser.name} (PID #{browser.pid})"
     end)
   end
 
@@ -267,6 +292,22 @@ defmodule Canaryd.CLI do
     "idle Codex process scan unavailable"
   end
 
+  defp playwright_browser_summary(%{
+         playwright_browser_monitor: %{status: :skipped_automation} = monitor
+       }) do
+    names = Enum.map_join(monitor.automation_processes, ", ", & &1.name)
+    "idle Playwright browser scan: automation active (#{names})"
+  end
+
+  defp playwright_browser_summary(%{playwright_browser_monitor: %{status: :available} = monitor}) do
+    "idle Playwright Chrome for Testing=#{monitor.detected}, " <>
+      "actions=#{inspect(monitor.actions)}"
+  end
+
+  defp playwright_browser_summary(%{playwright_browser_monitor: %{status: :unavailable}}) do
+    "idle Playwright browser scan unavailable"
+  end
+
   defp thermal_summary(%{thermal_pressure: false} = system) do
     "thermal pressure: normal; #{System.temperature_summary(system)}"
   end
@@ -293,6 +334,9 @@ defmodule Canaryd.CLI do
 
   defp history_target(target) when target in ["codex", "codex-processes"],
     do: :codex_processes
+
+  defp history_target(target) when target in ["playwright", "playwright-browsers"],
+    do: :playwright_browsers
 
   defp history_target(target) when target in ["build", "builds"], do: :builds
   defp history_target("apps"), do: :apps
