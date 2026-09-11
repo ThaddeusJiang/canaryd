@@ -5,9 +5,10 @@ defmodule Canaryd.Checker do
     1. L1 system: CPU/GPU temperature / thermal / load / memory
     2. Scan the macOS unresponsive state for third-party GUI apps
     3. Confirm and shut down long-idle Simulator devices
-    4. User idle > 30min? -> skip the CleanClip probe
-    5. L2 CleanClip process liveness (relaunch silently if dead)
-    6. L3 CleanClip functional probe, state machine, silent auto-restart,
+    4. Confirm and stop leftover Playwright Chrome for Testing
+    5. User idle > 30min? -> skip the CleanClip probe
+    6. L2 CleanClip process liveness (relaunch silently if dead)
+    7. L3 CleanClip functional probe, state machine, silent auto-restart,
        notify only when blocked.
   """
 
@@ -18,6 +19,8 @@ defmodule Canaryd.Checker do
     MemoryMonitor,
     MemoryProcesses,
     Notifier,
+    PlaywrightBrowserMonitor,
+    PlaywrightBrowsers,
     SimulatorMonitor,
     Simulators,
     StateMachine,
@@ -38,6 +41,7 @@ defmodule Canaryd.Checker do
       memory_monitor = check_idle_memory_processes(state, events, idle)
       simulator_monitor = check_idle_simulators(state, events, idle)
       codex_process_monitor = check_idle_codex_processes(state, events, idle)
+      playwright_browser_monitor = check_idle_playwright_browsers(state, events)
 
       sys =
         sys
@@ -45,6 +49,7 @@ defmodule Canaryd.Checker do
         |> Map.put(:memory_monitor, memory_monitor)
         |> Map.put(:simulator_monitor, simulator_monitor)
         |> Map.put(:codex_process_monitor, codex_process_monitor)
+        |> Map.put(:playwright_browser_monitor, playwright_browser_monitor)
 
       app_monitor = check_unresponsive_apps(state, events)
 
@@ -492,6 +497,114 @@ defmodule Canaryd.Checker do
 
   defp codex_process_details(process) do
     Map.take(process, [:id, :kind, :pid, :ppid, :name])
+  end
+
+  defp check_idle_playwright_browsers(state, events) do
+    monitor_state =
+      Store.get_value(state, :idle_playwright_browsers, PlaywrightBrowserMonitor.default_state())
+
+    with {:ok, browsers} <- PlaywrightBrowsers.scan(),
+         {:ok, automation_processes} <- PlaywrightBrowsers.active_automation_processes() do
+      automation_active = automation_processes != []
+
+      {new_monitor_state, actions} =
+        PlaywrightBrowserMonitor.evaluate(monitor_state, browsers, automation_active)
+
+      Store.put_state(state, :idle_playwright_browsers, new_monitor_state)
+
+      if automation_active do
+        %{
+          status: :skipped_automation,
+          detected: 0,
+          actions: [],
+          automation_processes: automation_processes
+        }
+      else
+        results = Enum.map(actions, &{&1, run_playwright_browser_action(events, &1)})
+        notify_playwright_browser_results(results)
+
+        %{
+          status: :available,
+          detected: length(browsers),
+          actions: Enum.map(results, &elem(&1, 1))
+        }
+      end
+    else
+      {:error, reason} ->
+        Store.put_state(
+          state,
+          :idle_playwright_browsers,
+          PlaywrightBrowserMonitor.reset_observations(monitor_state)
+        )
+
+        %{status: :unavailable, detected: 0, actions: [], reason: reason}
+    end
+  end
+
+  defp run_playwright_browser_action(events, {:detected, browser, count}) do
+    details = browser |> playwright_browser_details() |> Map.put(:count, count)
+    Store.log_event(events, :playwright_browsers, :idle_detected, details)
+    :detected
+  end
+
+  defp run_playwright_browser_action(events, {:terminate, browser}) do
+    with {:ok, []} <- PlaywrightBrowsers.active_automation_processes(),
+         :ok <- PlaywrightBrowsers.terminate(browser) do
+      Store.log_event(
+        events,
+        :playwright_browsers,
+        :terminated,
+        playwright_browser_details(browser)
+      )
+
+      :terminated
+    else
+      {:ok, [_process | _processes]} ->
+        playwright_browser_termination_skipped(events, browser, :automation_started)
+
+      :already_stopped ->
+        playwright_browser_termination_skipped(events, browser, :already_stopped)
+
+      {:error, :process_identity_changed} ->
+        playwright_browser_termination_skipped(events, browser, :process_identity_changed)
+
+      {:error, :browser_became_frontmost} ->
+        playwright_browser_termination_skipped(events, browser, :browser_became_frontmost)
+
+      {:error, reason} ->
+        details = Map.put(playwright_browser_details(browser), :reason, inspect(reason))
+        Store.log_event(events, :playwright_browsers, :termination_failed, details)
+        :termination_failed
+    end
+  end
+
+  defp playwright_browser_termination_skipped(events, browser, reason) do
+    details = Map.put(playwright_browser_details(browser), :reason, reason)
+    Store.log_event(events, :playwright_browsers, :termination_skipped, details)
+    :termination_skipped
+  end
+
+  defp notify_playwright_browser_results(results) do
+    terminated = Enum.count(results, &match?({{:terminate, _browser}, :terminated}, &1))
+    failed = Enum.count(results, &match?({{:terminate, _browser}, :termination_failed}, &1))
+
+    if terminated > 0 do
+      Notifier.notify(
+        "Mac Health",
+        "Stopped #{terminated} idle Playwright Chrome for Testing #{process_word(terminated)}."
+      )
+    end
+
+    if failed > 0 do
+      Notifier.notify(
+        "Mac Health",
+        "Could not stop #{failed} idle Playwright Chrome for Testing #{process_word(failed)}."
+      )
+    end
+  end
+
+  defp playwright_browser_details(browser) do
+    Map.take(browser, [:id, :kind, :pid, :ppid, :name])
   end
 
   defp check_unresponsive_apps(state, events) do
