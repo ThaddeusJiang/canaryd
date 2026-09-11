@@ -39,7 +39,7 @@ defmodule Canaryd.Checker do
       record_system(state, events, sys)
       thermal_monitor = check_thermal_processes(state, events, sys)
       memory_monitor = check_idle_memory_processes(state, events, idle)
-      simulator_monitor = check_idle_simulators(state, events, idle)
+      simulator_monitor = check_idle_simulators(state, events)
       codex_process_monitor = check_idle_codex_processes(state, events, idle)
       playwright_browser_monitor = check_idle_playwright_browsers(state, events)
 
@@ -276,28 +276,37 @@ defmodule Canaryd.Checker do
     ])
   end
 
-  defp check_idle_simulators(state, events, idle_duration) do
+  defp check_idle_simulators(state, events) do
     monitor_state =
       Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
 
-    if idle_duration >= SimulatorMonitor.minimum_idle() do
-      with {:ok, devices} <- Simulators.scan(),
-           {:ok, automation_processes} <- Simulators.active_automation_processes() do
-        automation_active = automation_processes != []
-        now = DateTime.utc_now()
+    with {:ok, devices} <- Simulators.scan(),
+         {:ok, simulator_foreground} <- Simulators.frontmost?(),
+         {:ok, automation_processes} <- Simulators.active_automation_processes() do
+      automation_active = automation_processes != []
+      now = DateTime.utc_now()
 
-        {new_monitor_state, actions} =
-          SimulatorMonitor.evaluate(
-            monitor_state,
-            devices,
-            idle_duration,
-            automation_active,
-            now
-          )
+      {new_monitor_state, actions} =
+        SimulatorMonitor.evaluate(
+          monitor_state,
+          devices,
+          simulator_foreground,
+          automation_active,
+          now
+        )
 
-        Store.put_state(state, :idle_simulators, new_monitor_state)
+      Store.put_state(state, :idle_simulators, new_monitor_state)
 
-        if automation_active do
+      cond do
+        simulator_foreground ->
+          %{
+            status: :skipped_foreground,
+            booted: length(devices),
+            detected: 0,
+            actions: []
+          }
+
+        automation_active ->
           %{
             status: :skipped_automation,
             booted: length(devices),
@@ -305,51 +314,60 @@ defmodule Canaryd.Checker do
             actions: [],
             automation_processes: automation_processes
           }
-        else
-          results = Enum.map(actions, &{&1, run_simulator_action(events, &1)})
+
+        true ->
+          results = Enum.map(actions, &{&1, run_simulator_action(state, events, &1)})
           notify_simulator_results(results)
 
           %{
             status: :available,
             booted: length(devices),
-            detected: Enum.count(devices, &SimulatorMonitor.candidate?(&1, now)),
+            detected:
+              Enum.count(
+                devices,
+                &SimulatorMonitor.candidate?(&1, new_monitor_state.last_foreground_at, now)
+              ),
             actions: Enum.map(results, &elem(&1, 1))
           }
-        end
-      else
-        {:error, reason} ->
-          Store.put_state(
-            state,
-            :idle_simulators,
-            SimulatorMonitor.reset_observations(monitor_state)
-          )
-
-          %{status: :unavailable, booted: 0, detected: 0, actions: [], reason: reason}
       end
     else
-      {new_monitor_state, []} =
-        SimulatorMonitor.evaluate(monitor_state, [], idle_duration, false, DateTime.utc_now())
+      {:error, reason} ->
+        Store.put_state(
+          state,
+          :idle_simulators,
+          SimulatorMonitor.reset_observations(monitor_state)
+        )
 
-      Store.put_state(state, :idle_simulators, new_monitor_state)
-      %{status: :skipped_active, booted: 0, detected: 0, actions: []}
+        %{status: :unavailable, booted: 0, detected: 0, actions: [], reason: reason}
     end
   end
 
-  defp run_simulator_action(events, {:detected, device, count}) do
-    details = device |> simulator_details() |> Map.put(:count, count)
-    Store.log_event(events, :simulators, :idle_detected, details)
-    :detected
-  end
+  @doc false
+  def run_simulator_action(state, events, {:shutdown, device}, simulators \\ Simulators) do
+    monitor_state =
+      Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
 
-  defp run_simulator_action(events, {:shutdown, device}) do
-    with true <- System.idle_duration() >= SimulatorMonitor.minimum_idle(),
-         {:ok, []} <- Simulators.active_automation_processes(),
-         :ok <- Simulators.shutdown(device) do
+    with {:ok, false} <- simulators.frontmost?(),
+         {:ok, []} <- simulators.active_automation_processes(),
+         true <-
+           SimulatorMonitor.candidate?(
+             device,
+             Map.get(monitor_state, :last_foreground_at),
+             DateTime.utc_now()
+           ),
+         :ok <- simulators.shutdown(device) do
       Store.log_event(events, :simulators, :shutdown, simulator_details(device))
       :shutdown
     else
+      {:ok, true} ->
+        {updated_state, []} =
+          SimulatorMonitor.evaluate(monitor_state, [], true, false, DateTime.utc_now())
+
+        :ok = Store.put_state(state, :idle_simulators, updated_state)
+        simulator_shutdown_skipped(events, device, :simulator_foreground)
+
       false ->
-        simulator_shutdown_skipped(events, device, :user_activity_resumed)
+        simulator_shutdown_skipped(events, device, :recent_activity)
 
       {:ok, [_process | _processes]} ->
         simulator_shutdown_skipped(events, device, :automation_started)

@@ -56,10 +56,12 @@ defmodule Canaryd.SimulatorsTest do
 
   test "finds only current-user xcodebuild and xctest processes" do
     output = """
-      42 501 /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
-      43 501 /Applications/Xcode.app/Contents/Developer/usr/bin/xctest
-      44 501 /usr/bin/simctl
-      45 502 /usr/bin/xcodebuild
+      42 501 S /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
+      43 501 S+ /Applications/Xcode.app/Contents/Developer/usr/bin/xctest
+      44 501 S /usr/bin/simctl
+      45 502 S /usr/bin/xcodebuild
+      46 501 Z /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
+      47 501 Z+ /Applications/Xcode.app/Contents/Developer/usr/bin/xctest
       malformed
     """
 
@@ -67,6 +69,26 @@ defmodule Canaryd.SimulatorsTest do
              %{pid: 42, name: "xcodebuild"},
              %{pid: 43, name: "xctest"}
            ]
+  end
+
+  test "detects whether Simulator is the frontmost application" do
+    runner = fn "osascript", ["-l", "JavaScript", "-e", script] ->
+      assert script =~ "frontmostApplication"
+      {:ok, "com.apple.iphonesimulator\n"}
+    end
+
+    assert {:ok, true} = Simulators.frontmost?(runner)
+
+    assert {:ok, false} =
+             Simulators.frontmost?(fn _bin, _args -> {:ok, "com.apple.Safari\n"} end)
+  end
+
+  test "fails closed when the frontmost application is unavailable" do
+    assert {:error, :unavailable} =
+             Simulators.frontmost?(fn _bin, _args -> {:error, :unavailable} end)
+
+    assert {:error, :unavailable} =
+             Simulators.frontmost?(fn _bin, _args -> {:ok, "  \n"} end)
   end
 
   test "shuts down only the revalidated exact UDID" do

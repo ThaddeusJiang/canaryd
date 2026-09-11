@@ -14,52 +14,45 @@ defmodule Canaryd.SimulatorMonitorTest do
         name: "iPhone 17 Pro",
         runtime: "iOS 26.5",
         state: :booted,
-        last_used_at: Duration.add(@t0, -Duration.minutes(30))
+        last_used_at: Duration.add(@t0, -Duration.minutes(15))
       },
       overrides
     )
   end
 
-  test "exposes conservative thresholds" do
-    assert SimulatorMonitor.minimum_idle() == 1_800_000
-    assert SimulatorMonitor.required_observations() == 3
+  test "exposes the fixed Simulator inactivity threshold" do
+    assert SimulatorMonitor.minimum_idle() == 900_000
   end
 
-  test "shuts down after three consecutive idle observations" do
-    idle = Duration.minutes(30)
+  test "shuts down on the first eligible check after 15 minutes" do
+    {_state, actions} =
+      SimulatorMonitor.evaluate(SimulatorMonitor.default_state(), [device()], false, false, @t0)
 
-    {state, actions} =
-      SimulatorMonitor.evaluate(SimulatorMonitor.default_state(), [device()], idle, false, @t0)
-
-    assert actions == [{:detected, device(), 1}]
-
-    {state, actions} = SimulatorMonitor.evaluate(state, [device()], idle, false, later(5))
-    assert actions == [{:detected, device(), 2}]
-
-    {state, actions} = SimulatorMonitor.evaluate(state, [device()], idle, false, later(10))
     assert actions == [{:shutdown, device()}]
-    assert SimulatorMonitor.pending_devices(state) == []
   end
 
-  test "user activity and test automation reset confirmation" do
-    idle = Duration.minutes(30)
-
-    {state, _actions} =
-      SimulatorMonitor.evaluate(SimulatorMonitor.default_state(), [device()], idle, false, @t0)
-
+  test "bringing Simulator to the foreground starts a new 15-minute window" do
     {state, []} =
-      SimulatorMonitor.evaluate(state, [device()], Duration.minutes(29), false, later(5))
+      SimulatorMonitor.evaluate(SimulatorMonitor.default_state(), [device()], true, false, @t0)
 
-    {state, actions} = SimulatorMonitor.evaluate(state, [device()], idle, false, later(10))
-    assert actions == [{:detected, device(), 1}]
+    assert state.last_foreground_at == @t0
 
-    {state, []} = SimulatorMonitor.evaluate(state, [device()], idle, true, later(15))
-    {_state, actions} = SimulatorMonitor.evaluate(state, [device()], idle, false, later(20))
-    assert actions == [{:detected, device(), 1}]
+    {state, []} = SimulatorMonitor.evaluate(state, [device()], false, false, later(14))
+
+    {_state, actions} = SimulatorMonitor.evaluate(state, [device()], false, false, later(15))
+    assert actions == [{:shutdown, device()}]
+  end
+
+  test "test automation blocks shutdown only while it is active" do
+    {state, []} =
+      SimulatorMonitor.evaluate(SimulatorMonitor.default_state(), [device()], false, true, @t0)
+
+    {_state, actions} = SimulatorMonitor.evaluate(state, [device()], false, false, later(5))
+    assert actions == [{:shutdown, device()}]
   end
 
   test "recent, unavailable, and stopped devices are protected" do
-    recent = device(%{last_used_at: Duration.add(@t0, -Duration.minutes(29))})
+    recent = device(%{last_used_at: Duration.add(@t0, -Duration.minutes(14))})
     unavailable = device(%{last_used_at: nil})
     stopped = device(%{state: :shutdown})
 
@@ -67,7 +60,7 @@ defmodule Canaryd.SimulatorMonitorTest do
       SimulatorMonitor.evaluate(
         SimulatorMonitor.default_state(),
         [recent, unavailable, stopped],
-        Duration.minutes(30),
+        false,
         false,
         @t0
       )
@@ -75,15 +68,25 @@ defmodule Canaryd.SimulatorMonitorTest do
     assert actions == []
   end
 
-  test "a changed last-used timestamp starts a new confirmation sequence" do
-    idle = Duration.minutes(30)
+  test "a changed last-used timestamp starts a new 15-minute window" do
+    state = SimulatorMonitor.default_state()
+    changed = device(%{last_used_at: later(5)})
 
-    {state, _actions} =
-      SimulatorMonitor.evaluate(SimulatorMonitor.default_state(), [device()], idle, false, @t0)
+    {state, []} = SimulatorMonitor.evaluate(state, [changed], false, false, later(19))
 
-    changed = device(%{last_used_at: Duration.add(@t0, -Duration.minutes(31))})
-    {_state, actions} = SimulatorMonitor.evaluate(state, [changed], idle, false, later(5))
+    {_state, actions} = SimulatorMonitor.evaluate(state, [changed], false, false, later(20))
+    assert actions == [{:shutdown, changed}]
+  end
 
-    assert actions == [{:detected, changed, 1}]
+  test "ignores persisted confirmation rounds from the previous policy" do
+    legacy_state = %{
+      observations: %{device().udid => %{device: device(), count: 2}}
+    }
+
+    {state, actions} = SimulatorMonitor.evaluate(legacy_state, [device()], false, false, @t0)
+
+    assert actions == [{:shutdown, device()}]
+    assert state.observations == %{}
+    assert state.last_foreground_at == nil
   end
 end
