@@ -75,10 +75,13 @@ the booted Simulators behind after the task ends. One real investigation found
 three booted devices that had been running for 15 hours to more than a day,
 with 742 processes across their Simulator trees.
 
-Canaryd waits for sustained inactivity, pauses while the current user has an
-active `xcodebuild` or `xctest` process, and revalidates the exact device before
-running `simctl shutdown <UDID>`. It never erases, deletes, or resets the device
-or its data.
+Canaryd keeps scanning while the Mac is in use. It starts a 15-minute inactivity
+window from the later of the device's `lastUsedAt` timestamp and the most recent
+time Simulator was in the foreground. The first five-minute check after that
+fixed window can shut down the device. An active `xcodebuild` or `xctest`
+process blocks recovery. Before running `simctl shutdown <UDID>`, Canaryd
+rechecks the foreground application, automation, and exact device. It never
+erases, deletes, or resets device data.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -407,7 +410,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | CPU or GPU heat | Three temperature samples; two rounds for the same actionable leader | Warn first, then offer Close or Restart |
 | GUI app hang | macOS Not Responding state in two consecutive rounds | Restart a supported third-party app in the background |
 | Idle high memory | 30 minutes of user inactivity and three low-CPU, 1 GB+ rounds | Request a graceful app close |
-| Idle Simulator | Sustained inactivity and three unchanged device observations | Shut down the exact booted UDID |
+| Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
 | Idle Codex screen control | 30 minutes of user inactivity and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Stale build output | Complete tree inactive for seven days and related tools idle | Remove a validated DerivedData or Cargo target directory |
@@ -424,6 +427,7 @@ The shared safety rules are:
 - A newer user clipboard write always wins over CleanClip probe restoration.
 - Idle-memory recovery never uses `SIGKILL`.
 - Simulator recovery never runs `erase`, `delete`, `reset`, or `shutdown all`.
+- Whole-Mac keyboard and pointer activity does not reset Simulator inactivity.
 - Active current-user `xcodebuild` and `xctest` processes block Simulator
   shutdown.
 - Codex helper cleanup matches only fixed Computer Use, `node_repl`,

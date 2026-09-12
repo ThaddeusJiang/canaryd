@@ -1,45 +1,41 @@
 defmodule Canaryd.SimulatorMonitor do
   @moduledoc """
-  Pure confirmation policy for shutting down idle booted Simulator devices.
+  Fixed inactivity policy for shutting down idle booted Simulator devices.
 
-  A device must be old enough, the user must be away, and no supported test
-  automation can be active for three consecutive full check rounds.
+  A device becomes actionable 15 minutes after its latest known activity.
+  Simulator foreground use and supported test automation block shutdown.
   """
 
   alias Canaryd.Duration
 
-  @minimum_idle Duration.minutes(30)
-  @required_observations 3
+  @minimum_idle Duration.minutes(15)
 
   def default_state do
-    %{observations: %{}}
+    %{observations: %{}, last_foreground_at: nil}
   end
 
   @doc "Evaluates one scan and returns `{new_state, actions}`."
-  def evaluate(state, devices, idle_duration, automation_active, now) do
-    state = normalize_state(state)
+  def evaluate(state, devices, simulator_foreground, automation_active, now) do
+    state = state |> normalize_state() |> record_foreground(simulator_foreground, now)
 
     candidates =
-      if idle_duration >= @minimum_idle and not automation_active do
+      if not simulator_foreground and not automation_active do
         devices
-        |> Enum.filter(&candidate?(&1, now))
+        |> Enum.filter(&candidate?(&1, state.last_foreground_at, now))
         |> Enum.uniq_by(& &1.udid)
       else
         []
       end
 
-    active_ids = MapSet.new(candidates, & &1.udid)
-    state = %{state | observations: Map.take(state.observations, MapSet.to_list(active_ids))}
-
-    Enum.reduce(candidates, {state, []}, fn device, {current_state, actions} ->
-      {next_state, action} = observe(current_state, device)
-      {next_state, [action | actions]}
-    end)
-    |> then(fn {new_state, actions} -> {new_state, Enum.reverse(actions)} end)
+    state = %{state | observations: %{}}
+    {state, Enum.map(candidates, &{:shutdown, &1})}
   end
 
   @doc "Clears incomplete observations after an unavailable or unsafe scan."
-  def reset_observations(_state), do: default_state()
+  def reset_observations(state) do
+    state = normalize_state(state)
+    %{state | observations: %{}}
+  end
 
   def pending_devices(state) do
     state
@@ -49,38 +45,37 @@ defmodule Canaryd.SimulatorMonitor do
     |> Enum.sort_by(& &1.name)
   end
 
-  def candidate?(%{state: :booted, last_used_at: %DateTime{} = last_used_at}, now) do
-    Duration.between(now, last_used_at) >= @minimum_idle
+  def candidate?(device, now), do: candidate?(device, nil, now)
+
+  def candidate?(
+        %{state: :booted, last_used_at: %DateTime{} = last_used_at},
+        last_foreground_at,
+        now
+      ) do
+    last_activity_at = latest_activity(last_used_at, last_foreground_at)
+    Duration.between(now, last_activity_at) >= @minimum_idle
   end
 
-  def candidate?(_device, _now), do: false
+  def candidate?(_device, _last_foreground_at, _now), do: false
 
   def minimum_idle, do: @minimum_idle
-  def required_observations, do: @required_observations
 
-  defp observe(state, device) do
-    previous = Map.get(state.observations, device.udid)
+  defp normalize_state(state) do
+    %{
+      observations: Map.get(state, :observations, %{}),
+      last_foreground_at: Map.get(state, :last_foreground_at)
+    }
+  end
 
-    previous_count =
-      if previous && same_device_session?(previous.device, device), do: previous.count, else: 0
+  defp record_foreground(state, true, now), do: %{state | last_foreground_at: now}
+  defp record_foreground(state, false, _now), do: state
 
-    count = previous_count + 1
-
-    if count >= @required_observations do
-      next_state = %{state | observations: Map.delete(state.observations, device.udid)}
-      {next_state, {:shutdown, device}}
-    else
-      observation = %{device: device, count: count}
-      next_state = %{state | observations: Map.put(state.observations, device.udid, observation)}
-      {next_state, {:detected, device, count}}
+  defp latest_activity(last_used_at, %DateTime{} = last_foreground_at) do
+    case DateTime.compare(last_used_at, last_foreground_at) do
+      :lt -> last_foreground_at
+      _ -> last_used_at
     end
   end
 
-  defp same_device_session?(previous, current) do
-    previous.udid == current.udid and previous.last_used_at == current.last_used_at
-  end
-
-  defp normalize_state(state) do
-    %{observations: Map.get(state, :observations, %{})}
-  end
+  defp latest_activity(last_used_at, _last_foreground_at), do: last_used_at
 end

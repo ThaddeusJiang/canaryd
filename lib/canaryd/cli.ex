@@ -272,8 +272,8 @@ defmodule Canaryd.CLI do
     "idle memory scan unavailable"
   end
 
-  defp simulator_summary(%{simulator_monitor: %{status: :skipped_active}}) do
-    "idle Simulator scan: waiting for 30 minutes of user inactivity"
+  defp simulator_summary(%{simulator_monitor: %{status: :skipped_foreground}}) do
+    "idle Simulator scan: Simulator is in the foreground"
   end
 
   defp simulator_summary(%{simulator_monitor: %{status: :skipped_automation} = monitor}) do

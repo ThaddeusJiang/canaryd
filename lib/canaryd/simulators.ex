@@ -13,6 +13,12 @@ defmodule Canaryd.Simulators do
   @device_pattern ~r/^\s*(.*?)\s+\((#{@udid_pattern.source})\)\s+\(Booted\)\s*$/
   @runtime_pattern ~r/^--\s+(.+?)\s+--$/
   @automation_names MapSet.new(["xcodebuild", "xctest"])
+  @simulator_bundle_id "com.apple.iphonesimulator"
+  @frontmost_script """
+  ObjC.import("AppKit")
+  var app = $.NSWorkspace.sharedWorkspace.frontmostApplication
+  app.bundleIdentifier ? ObjC.unwrap(app.bundleIdentifier) : ""
+  """
 
   @doc "Returns every booted Simulator device in the default device set."
   def scan do
@@ -60,7 +66,7 @@ defmodule Canaryd.Simulators do
   @doc "Returns current-user xcodebuild or xctest processes."
   def active_automation_processes do
     with {:ok, uid} <- current_uid(),
-         {:ok, output} <- cmd("ps", ["-Ao", "pid=,uid=,comm="]) do
+         {:ok, output} <- cmd("ps", ["-Ao", "pid=,uid=,state=,comm="]) do
       {:ok, parse_automation_processes(output, uid)}
     end
   end
@@ -70,11 +76,12 @@ defmodule Canaryd.Simulators do
     output
     |> String.split("\n", trim: true)
     |> Enum.flat_map(fn row ->
-      case String.split(String.trim(row), ~r/\s+/, parts: 3) do
-        [pid_text, uid_text, command] ->
+      case String.split(String.trim(row), ~r/\s+/, parts: 4) do
+        [pid_text, uid_text, state, command] ->
           with {pid, ""} when pid > 0 <- Integer.parse(pid_text),
                {uid, ""} <- Integer.parse(uid_text),
                true <- uid == current_uid,
+               false <- zombie?(state),
                name <- command |> Path.basename() |> String.downcase(),
                true <- MapSet.member?(@automation_names, name) do
             [%{pid: pid, name: name}]
@@ -86,6 +93,26 @@ defmodule Canaryd.Simulators do
           []
       end
     end)
+  end
+
+  @doc "Returns whether Simulator is the current foreground application."
+  def frontmost?, do: frontmost?(&cmd/2)
+
+  @doc false
+  def frontmost?(runner) when is_function(runner, 2) do
+    case runner.("osascript", ["-l", "JavaScript", "-e", @frontmost_script]) do
+      {:ok, output} ->
+        case String.trim(output) do
+          "" -> {:error, :unavailable}
+          @simulator_bundle_id -> {:ok, true}
+          _bundle_id -> {:ok, false}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  rescue
+    _ -> {:error, :unavailable}
   end
 
   @doc "Revalidates and shuts down one exact Simulator device without erasing it."
@@ -150,6 +177,8 @@ defmodule Canaryd.Simulators do
   end
 
   defp valid_udid?(_udid), do: false
+
+  defp zombie?(state), do: state |> String.upcase() |> String.starts_with?("Z")
 
   defp current_uid do
     with {:ok, output} <- cmd("id", ["-u"]),
