@@ -198,16 +198,30 @@ processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
 
 ### 7. AI agents finish, but their build output stays
 
-Parallel coding agents can leave Xcode DerivedData and Cargo `target/`
-directories across projects and worktrees after their tasks are complete. The
+Parallel coding agents can leave Xcode DerivedData, Cargo `target/` directories,
+and Bazel output bases after their tasks are complete. Deleting a worktree does
+not remove its Bazel cache, and workspace backups can retain build artifacts. The
 source may already be committed while reproducible build output continues to
 consume disk space.
 
 At 04:00 local time, Canaryd checks fixed safe roots, validates every candidate,
-and requires the complete directory tree to be untouched for seven days. It
+and requires Xcode/Cargo directory trees to be untouched for seven days. It
 skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
 and skips Rust cleanup while `cargo` or `rustc` is active. It never follows
 symbolic links or removes source, Archives, Simulator data, or Cargo caches.
+
+Cargo discovery includes `~/.codex/workspace-backups` as well as live projects
+and Codex worktrees. Only validated Cargo build directories are eligible;
+backup archives, unmerged changes, development data, and test evidence remain.
+The seven-day rule and active-build checks also apply to backup artifacts.
+
+The same daily run removes Bazel output bases only when their workspace marker
+and directory hash agree, and the recorded local workspace no longer exists.
+An existing workspace always keeps its cache. Canaryd rechecks server PIDs,
+the native cache lock, and the missing workspace before deletion. Busy or
+unverifiable caches and shared download/install caches remain untouched.
+Orphaned Bazel caches do not need to reach the seven-day retention period.
+Run `canaryd clean` to apply these checks manually.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -286,7 +300,7 @@ The first command installs two launchd agents:
 | Agent | Schedule | Work |
 | --- | ---: | --- |
 | Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
-| Build cleanup | Daily at 04:00 | Remove validated Xcode DerivedData and Cargo target directories inactive for seven days |
+| Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup targets, and orphaned Bazel caches |
 
 Every later command verifies and repairs both agents when necessary. You do
 not need to manage plist files.
@@ -360,7 +374,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd clean` | Remove stale Xcode DerivedData and Cargo target directories now |
+| `canaryd clean` | Clean stale Xcode/Cargo outputs and orphaned Bazel caches now |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd install` | Reinstall and load the launchd agents |
 | `canaryd uninstall` | Remove the launchd agents and the notification helper |
@@ -418,9 +432,14 @@ The shared safety rules are:
   It does not wait for whole-Mac user idle.
 - Playwright Chrome cleanup revalidates an exact PID, sends only `SIGTERM`, and
   never stores the command line used for classification.
-- Build cleanup pauses while related Xcode or Rust tools are active and removes
-  only validated, reproducible directories whose complete trees are at least
-  seven days old.
+- Xcode/Cargo cleanup pauses while related tools are active and removes only
+  validated, reproducible directories whose complete trees are at least seven
+  days old, including Cargo targets in Codex workspace backups.
+- Bazel cleanup requires a missing local workspace, no active server, and an
+  exclusive native lock on that output base. Starting clients or unavailable
+  process inspection block deletion; shared download/install caches remain.
+- Workspace backup containers, archives, unmerged changes, development data,
+  and test evidence outside validated build directories are retained.
 - Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,
   Simulator data, Cargo registry or git caches, installed binaries, or source.
 - App restart, prompt, and close actions use one-hour cooldowns.
