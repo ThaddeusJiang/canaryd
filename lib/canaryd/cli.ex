@@ -197,7 +197,7 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
-      canaryd clean              remove stale Xcode and Cargo build artifacts
+      canaryd clean              remove stale Xcode/Cargo artifacts and orphaned Bazel caches
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
       canaryd install            (re)install the launchd agents (usually automatic)
       canaryd uninstall          remove the launchd agents
@@ -383,7 +383,8 @@ defmodule Canaryd.CLI do
       reclaimed_bytes: result.reclaimed_bytes,
       failures: length(result.failures),
       xcode_skip: result.skipped.xcode,
-      rust_skip: result.skipped.rust
+      rust_skip: result.skipped.rust,
+      bazel_skip: result.skipped.bazel
     }
 
     Store.with_tables(fn _state, events ->
