@@ -101,7 +101,7 @@ echo "Installed $version_output to $install_dir/canaryd"
 
 case ":$PATH:" in
   *":$install_dir:"*)
-    echo "Run: canaryd status"
+    echo "Run: canaryd start"
     ;;
   *)
     if [ -n "$profile_path" ]; then
@@ -110,6 +110,6 @@ case ":$PATH:" in
       echo "Add this directory to PATH: $install_dir"
     fi
 
-    echo "Then run: canaryd status"
+    echo "Then run: canaryd start"
     ;;
 esac

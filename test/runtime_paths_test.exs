@@ -52,7 +52,7 @@ defmodule Canaryd.RuntimePathsTest do
     output =
       capture_io(fn ->
         CLI.main(["clean"],
-          ensure_installed: fn -> :ok end,
+          ensure_notification_helper: fn -> :ok end,
           build_cleanup: fn ->
             BuildCleanup.run(
               now: ~U[2030-01-01 00:00:00Z],

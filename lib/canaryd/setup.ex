@@ -1,8 +1,7 @@
 defmodule Canaryd.Setup do
   @moduledoc """
-  Self-installing launchd agents. launchd is an implementation detail:
-  users never touch plist files. Every CLI invocation ensures the agents
-  are present and loaded; if the user deletes one, the next run heals it.
+  Manages launchd agents for explicit CLI start and stop requests.
+  launchd is an implementation detail: users never touch plist files.
   """
 
   @label "com.thaddeusjiang.canaryd"
@@ -37,25 +36,6 @@ defmodule Canaryd.Setup do
         escript_path: escript_path
       }
     ]
-  end
-
-  @doc "Idempotent. Safe to call on every CLI run."
-  def ensure_installed do
-    agents = configured_agents()
-
-    with :ok <- NotificationHelper.ensure_installed(),
-         :ok <- remove_obsolete_agents() do
-      cond do
-        Enum.any?(agents, &(not File.exists?(plist_path(&1.label)))) ->
-          install_agents(agents)
-
-        Enum.any?(agents, &(not loaded?(&1.label))) ->
-          bootstrap(agents)
-
-        true ->
-          :ok
-      end
-    end
   end
 
   def install do

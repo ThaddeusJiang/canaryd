@@ -292,18 +292,21 @@ when necessary.
 Restart the shell, or run the `source` command printed by the installer, then:
 
 ```sh
+canaryd start
 canaryd status
 ```
 
-The first command installs two launchd agents:
+`canaryd start` enables two background tasks, including after login:
 
 | Agent | Schedule | Work |
 | --- | ---: | --- |
 | Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
 | Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup targets, and orphaned Bazel caches |
 
-Every later command verifies and repairs both agents when necessary. You do
-not need to manage plist files.
+Use `canaryd stop` to stop both tasks until you run `canaryd start` again.
+Status, history, help, and manual checks do not start background tasks. You do
+not need to manage plist files. Run `canaryd start` after upgrading to refresh
+the background tasks and notification helper.
 
 <details>
 <summary><strong>Manual archive, source, and Hex installation</strong></summary>
@@ -376,9 +379,11 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Clean stale Xcode/Cargo outputs and orphaned Bazel caches now |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
-| `canaryd install` | Reinstall and load the launchd agents |
-| `canaryd uninstall` | Remove the launchd agents and the notification helper |
+| `canaryd start` | Start background monitoring, including after login |
+| `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
 | `canaryd --version` | Show the installed version without changing the launchd agents |
+
+`install` and `uninstall` remain compatibility aliases for `start` and `stop`.
 
 Examples:
 
@@ -474,17 +479,23 @@ contains the local recovery timeline, including build-cleanup actions. The log
 files contain launchd output. Canaryd does not store document content or process
 command-line arguments in its event history.
 
-## Uninstall
+## Stop or remove Canaryd
 
-Remove the launchd agents and the notification helper:
+Stop background monitoring:
 
 ```sh
-canaryd uninstall
+canaryd stop
 ```
 
-To remove saved state and logs too:
+This removes the scheduled tasks and notification helper, keeping the executable,
+saved state, events, and logs. It stays stopped across logins; `canaryd start`
+restores background monitoring. Manual `check`, `thermal-check`, and `clean`
+commands still run once when requested.
+
+To remove the executable, saved state, and logs too (default installation path):
 
 ```sh
+rm "$HOME/.local/bin/canaryd"
 rm -r "$HOME/Library/Application Support/canaryd"
 ```
 
