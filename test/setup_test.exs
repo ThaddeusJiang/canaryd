@@ -57,4 +57,14 @@ defmodule Canaryd.SetupTest do
   test "marks the dedicated thermal agent as obsolete" do
     assert Setup.obsolete_agent_labels() == ["com.thaddeusjiang.canaryd.thermal"]
   end
+
+  test "launchd can resolve the system load sampler" do
+    for agent <- Setup.agent_specs("/Applications/canaryd") do
+      [_, path] =
+        Regex.run(~r/<key>PATH<\/key>\s*<string>([^<]+)<\/string>/, Setup.agent_plist(agent))
+
+      assert {"/usr/sbin/sysctl\n", 0} =
+               System.cmd("/bin/sh", ["-c", "command -v sysctl"], env: [{"PATH", path}])
+    end
+  end
 end

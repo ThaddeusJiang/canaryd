@@ -319,16 +319,25 @@ defmodule Canaryd.CLI do
     "idle Playwright browser scan unavailable"
   end
 
-  defp thermal_summary(%{thermal_pressure: false} = system) do
+  @doc false
+  def thermal_summary(system) do
+    Enum.join([pressure_summary(system) | system.warnings], "; ")
+  end
+
+  defp pressure_summary(%{thermal_status: :unavailable} = system) do
+    "thermal pressure: unavailable; #{System.temperature_summary(system)}"
+  end
+
+  defp pressure_summary(%{thermal_pressure: false} = system) do
     "thermal pressure: normal; #{System.temperature_summary(system)}"
   end
 
-  defp thermal_summary(%{hot_processes: []} = system) do
+  defp pressure_summary(%{hot_processes: []} = system) do
     "thermal pressure: high; #{System.temperature_summary(system)}; " <>
       "no process uses at least 20% CPU"
   end
 
-  defp thermal_summary(%{hot_processes: processes} = system) do
+  defp pressure_summary(%{hot_processes: processes} = system) do
     suspects =
       Enum.map_join(processes, ", ", fn process ->
         "#{process.name} (PID #{process.pid}, CPU #{process.cpu_percent}%)"

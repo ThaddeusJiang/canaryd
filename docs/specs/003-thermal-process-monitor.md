@@ -73,11 +73,31 @@ Ask the user to close, restart, or ignore one safe app candidate.
 30. Install one launchd agent for scheduled health checks.
 31. During an upgrade, unload and remove the obsolete dedicated thermal agent.
 32. Use the shared store lock to prevent concurrent check rounds.
+33. Include `/usr/sbin` and `/sbin` in the launchd environment so system tools such as `sysctl` remain available without an interactive shell.
+34. Preserve failed or invalid load samples as unavailable; never substitute zero load or one CPU core. Missing load, chip temperature, or throttling data makes the thermal summary unavailable unless another valid signal already establishes high pressure. Include the unavailable metric in warnings so system health cannot silently report success.
 
 CPU usage is correlation evidence.
 It is not proof of exact heat contribution.
 
 ## BDD Scenarios
+
+### BDD-05 Detect load under launchd and report unavailable samples
+
+Given:
+- The check runs with the generated launchd PATH.
+- Chip temperatures are below 70°C.
+
+When:
+- The system load exceeds 0.8 per CPU core.
+
+Then:
+- `sysctl` resolves and thermal monitoring receives high pressure and CPU suspects.
+- If the load command fails or returns malformed data, load and core values remain unavailable, the CLI reports `thermal pressure: unavailable`, and system health receives an unavailable warning.
+- A valid hot temperature or throttling signal still triggers monitoring even if the load sample fails.
+
+Acceptance Evidence:
+- `Canaryd.SetupTest`: resolve `sysctl` using each generated agent's PATH.
+- `Canaryd.SystemThermalTest`: high load below the temperature threshold; command failure, malformed and zero-core samples; unavailable CLI output; independent high-temperature detection; normal samples.
 
 ### BDD-01 Confirm sustained heat
 

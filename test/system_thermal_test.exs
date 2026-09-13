@@ -3,6 +3,90 @@ defmodule Canaryd.SystemThermalTest do
 
   alias Canaryd.System
 
+  test "high load triggers thermal monitoring below the temperature threshold" do
+    system = sample()
+    assert system.load1 == 37.03
+    assert system.cores == 10
+    assert system.thermal_pressure
+    assert system.thermal_status == :high
+    assert [%{pid: 42}] = system.hot_processes
+  end
+
+  test "failed or invalid load samples are unavailable rather than zero or healthy" do
+    for {metric, result} <- [
+          {"vm.loadavg", {:error, :unavailable}},
+          {"hw.ncpu", {:error, :unavailable}},
+          {"vm.loadavg", {:ok, "invalid"}},
+          {"vm.loadavg", {:ok, "{ -1.0 0.0 0.0 }"}},
+          {"hw.ncpu", {:ok, "0"}},
+          {"hw.ncpu", {:ok, "invalid"}}
+        ] do
+      system = sample(%{{"sysctl", ["-n", metric]} => result})
+      assert system.load1 == nil
+      assert system.cores == nil
+      assert system.load_per_core == nil
+      assert system.thermal_status == :unavailable
+      refute system.thermal_pressure
+      assert "system load unavailable" in system.warnings
+      output = Canaryd.CLI.thermal_summary(system)
+      assert output =~ "thermal pressure: unavailable"
+      assert output =~ "system load unavailable"
+      refute output =~ "normal"
+    end
+  end
+
+  test "missing load does not suppress independently observed heat" do
+    system = sample(%{{"sysctl", ["-n", "vm.loadavg"]} => {:error, :unavailable}}, 75.0)
+    assert system.thermal_pressure
+    assert system.thermal_status == :high
+    assert [%{pid: 42}] = system.hot_processes
+    assert Canaryd.CLI.thermal_summary(system) =~ "system load unavailable"
+  end
+
+  test "missing temperature or throttling data is not reported as normal" do
+    normal_load = %{{"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 1.0 1.0 1.0 }"}}
+
+    for system <- [
+          sample(normal_load, :unavailable),
+          sample(Map.put(normal_load, {"pmset", ["-g", "therm"]}, {:error, :unavailable})),
+          sample(Map.put(normal_load, {"pmset", ["-g", "therm"]}, {:ok, "invalid"}))
+        ] do
+      assert system.thermal_status == :unavailable
+      refute Canaryd.CLI.thermal_summary(system) =~ "normal"
+    end
+  end
+
+  test "successful cool and low-load samples are normal" do
+    system = sample(%{{"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 1.0 1.0 1.0 }"}})
+    assert system.thermal_status == :normal
+    refute system.thermal_pressure
+    assert system.warnings == []
+    assert Canaryd.CLI.thermal_summary(system) =~ "thermal pressure: normal"
+  end
+
+  defp sample(overrides \\ %{}, temperature \\ 64.0) do
+    responses = %{
+      {"sysctl", ["-n", "hw.ncpu"]} => {:ok, "10\n"},
+      {"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 37.03 35.0 26.0 }"},
+      {"pmset", ["-g", "therm"]} => {:ok, "Note: No CPU power status has been recorded"},
+      {"memory_pressure", []} => {:ok, "System-wide memory free percentage: 30%"},
+      {"ioreg", ["-r", "-n", "AppleSmartBattery"]} => {:ok, ""},
+      {"id", ["-u"]} => {:ok, "501"},
+      {"ps", ["-Ao", "pid=,uid=,pcpu=,command="]} => {:ok, "42 501 80.0 /usr/bin/node"}
+    }
+
+    responses = Map.merge(responses, overrides)
+
+    System.check(
+      runner: fn command, args -> Map.fetch!(responses, {command, args}) end,
+      temperature_sampler: fn ->
+        if temperature == :unavailable,
+          do: {:error, :unavailable},
+          else: {:ok, %{cpu_temperature_c: temperature, gpu_temperature_c: temperature}}
+      end
+    )
+  end
+
   test "converts HID idle nanoseconds to the internal millisecond unit" do
     assert System.parse_idle_duration(~s("HIDIdleTime" = 1800000000000)) == 1_800_000
     assert System.parse_idle_duration("missing") == 0

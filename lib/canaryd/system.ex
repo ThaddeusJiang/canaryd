@@ -37,13 +37,19 @@ defmodule Canaryd.System do
   @doc """
   Returns %{load_per_core, load1, cores, throttled, mem_free_pct, warnings: [...]}.
   """
-  def check do
-    {load1, cores} = load()
-    throttled = thermal_throttled?()
-    mem_free = memory_free_pct()
-    battery_temperature = battery_temperature()
-    temperature_sample = Canaryd.Temperature.sample()
-    load_pressure = load1 / cores > @load_factor_warn
+  def check(options \\ []) do
+    runner = Keyword.get(options, :runner, &cmd/2)
+
+    temperature_sampler =
+      Keyword.get(options, :temperature_sampler, &Canaryd.Temperature.sample/0)
+
+    {load1, cores} = load(runner)
+    load_per_core = if is_number(load1) and is_integer(cores), do: load1 / cores
+    throttled = thermal_throttled?(runner)
+    mem_free = memory_free_pct(runner)
+    battery_temperature = battery_temperature(runner)
+    temperature_sample = temperature_sampler.()
+    load_pressure = is_number(load_per_core) and load_per_core > @load_factor_warn
 
     {chip_temperatures, temperature_error} =
       case temperature_sample do
@@ -52,7 +58,25 @@ defmodule Canaryd.System do
       end
 
     chip_temperature_pressure = chip_temperature_pressure?(chip_temperatures)
-    warnings = []
+    thermal_pressure = throttled == true or chip_temperature_pressure or load_pressure
+
+    sampling_warnings =
+      [
+        {is_nil(load_per_core), "system load unavailable"},
+        {is_nil(throttled), "thermal throttling unavailable"},
+        {not is_nil(temperature_error), "CPU/GPU temperature unavailable"}
+      ]
+      |> Enum.filter(fn {unavailable, _message} -> unavailable end)
+      |> Enum.map(&elem(&1, 1))
+
+    thermal_status =
+      cond do
+        thermal_pressure -> :high
+        sampling_warnings != [] -> :unavailable
+        true -> :normal
+      end
+
+    warnings = sampling_warnings
     warnings = if throttled, do: ["CPU thermal throttling active" | warnings], else: warnings
 
     warnings = chip_temperature_warnings(warnings, chip_temperatures)
@@ -73,18 +97,18 @@ defmodule Canaryd.System do
     %{
       load1: load1,
       cores: cores,
-      load_per_core: Float.round(load1 / cores, 3),
+      load_per_core: if(is_number(load_per_core), do: Float.round(load_per_core, 3)),
       throttled: throttled,
       battery_temperature_c: battery_temperature,
       cpu_temperature_c: chip_temperatures.cpu_temperature_c,
       gpu_temperature_c: chip_temperatures.gpu_temperature_c,
       temperature_source: if(is_nil(temperature_error), do: :macmon, else: :unavailable),
       temperature_error: temperature_error,
-      thermal_pressure: throttled or chip_temperature_pressure or load_pressure,
+      thermal_pressure: thermal_pressure,
+      thermal_status: thermal_status,
       mem_free_pct: mem_free,
       warnings: warnings,
-      hot_processes:
-        if(throttled or chip_temperature_pressure or load_pressure, do: hot_processes(), else: [])
+      hot_processes: if(thermal_pressure, do: hot_processes(runner), else: [])
     }
   end
 
@@ -159,43 +183,37 @@ defmodule Canaryd.System do
 
   defp battery_temperature_summary(_value), do: nil
 
-  defp load do
-    cores =
-      case cmd("sysctl", ["-n", "hw.ncpu"]) do
-        {:ok, out} -> String.trim(out) |> String.to_integer()
-        _ -> 1
-      end
-
-    load1 =
-      case cmd("sysctl", ["-n", "vm.loadavg"]) do
-        {:ok, out} ->
-          case Regex.run(~r/([\d.]+)/, out) do
-            [_, l1] -> String.to_float(l1)
-            _ -> 0.0
-          end
-
-        _ ->
-          0.0
-      end
-
-    {load1, cores}
-  end
-
-  defp thermal_throttled? do
-    case cmd("pmset", ["-g", "therm"]) do
-      {:ok, out} ->
-        case Regex.run(~r/CPU_Speed_Limit\s*=\s*(\d+)/, out) do
-          [_, pct] -> String.to_integer(pct) < 100
-          _ -> false
-        end
-
-      _ ->
-        false
+  defp load(runner) do
+    with {:ok, cpu_output} <- runner.("sysctl", ["-n", "hw.ncpu"]),
+         {cores, ""} when cores > 0 <- Integer.parse(String.trim(cpu_output)),
+         {:ok, load_output} <- runner.("sysctl", ["-n", "vm.loadavg"]),
+         [_, first, _second, _third] <-
+           Regex.run(
+             ~r/^\s*\{\s*(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*\}\s*$/,
+             load_output
+           ),
+         {load1, ""} <- Float.parse(first) do
+      {load1, cores}
+    else
+      _ -> {nil, nil}
     end
   end
 
-  defp memory_free_pct do
-    case cmd("memory_pressure", []) do
+  defp thermal_throttled?(runner) do
+    case runner.("pmset", ["-g", "therm"]) do
+      {:ok, out} ->
+        case Regex.run(~r/CPU_Speed_Limit\s*=\s*(\d+)/, out) do
+          [_, pct] -> String.to_integer(pct) < 100
+          _ -> if String.contains?(out, "No CPU power status has been recorded"), do: false
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp memory_free_pct(runner) do
+    case runner.("memory_pressure", []) do
       {:ok, out} ->
         case Regex.run(~r/free percentage:\s*(\d+)%/, out) do
           [_, pct] -> String.to_integer(pct)
@@ -207,17 +225,17 @@ defmodule Canaryd.System do
     end
   end
 
-  defp battery_temperature do
-    case cmd("ioreg", ["-r", "-n", "AppleSmartBattery"]) do
+  defp battery_temperature(runner) do
+    case runner.("ioreg", ["-r", "-n", "AppleSmartBattery"]) do
       {:ok, out} -> parse_battery_temperature(out)
       _ -> nil
     end
   end
 
-  defp hot_processes do
-    with {:ok, uid_output} <- cmd("id", ["-u"]),
+  defp hot_processes(runner) do
+    with {:ok, uid_output} <- runner.("id", ["-u"]),
          {uid, ""} <- Integer.parse(String.trim(uid_output)),
-         {:ok, output} <- cmd("ps", ["-Ao", "pid=,uid=,pcpu=,command="]) do
+         {:ok, output} <- runner.("ps", ["-Ao", "pid=,uid=,pcpu=,command="]) do
       own_pid = Elixir.System.pid() |> String.to_integer()
       Enum.reject(parse_hot_processes(output, uid), &(&1.pid == own_pid))
     else
