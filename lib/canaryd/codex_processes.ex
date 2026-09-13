@@ -10,6 +10,7 @@ defmodule Canaryd.CodexProcesses do
   alias Canaryd.Duration
 
   @computer_use_service ~r{^/Users/[^/]+/\.codex/computer-use/Codex Computer Use\.app/Contents/MacOS/SkyComputerUseService$}
+  @computer_history_mcp ~r{^/Users/[^/]+/\.codex/computer-use/Codex Computer Use\.app/Contents/SharedSupport/SkyComputerUseClient\.app/Contents/MacOS/SkyComputerUseClient computer-history mcp$}
   @node_repl ~r{^/Applications/(?:ChatGPT|Codex)\.app/Contents/Resources/cua_node/bin/node_repl$}
   @computer_use_launcher ~r{^/Applications/(?:ChatGPT|Codex)\.app/Contents/Resources/cua_node/bin/node .*/unified-computer-use/[^/]+/scripts/launch\.mjs$}
   @cua_driver_mcp ~r{^(?:/Users/[^/]+/\.local/bin|/Applications/CuaDriver\.app/Contents/MacOS)/cua-driver mcp$}
@@ -99,6 +100,9 @@ defmodule Canaryd.CodexProcesses do
     cond do
       Regex.match?(@computer_use_service, command) ->
         {:computer_use_service, "Codex Computer Use"}
+
+      Regex.match?(@computer_history_mcp, command) ->
+        {:computer_history_mcp, "Codex Computer History MCP"}
 
       Regex.match?(@node_repl, command) ->
         {:node_repl, "node_repl"}

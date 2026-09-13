@@ -13,6 +13,8 @@ long-lived CUA Driver service.
 - In scope:
   - Current-user `SkyComputerUseService` processes installed under the Codex
     Computer Use app path.
+  - Current-user `SkyComputerUseClient computer-history mcp` processes installed
+    in the Codex Computer Use app's `SharedSupport/SkyComputerUseClient.app`.
   - ChatGPT or Codex `cua_node/bin/node_repl` processes.
   - ChatGPT or Codex Node processes running the installed
     `unified-computer-use` launcher.
@@ -23,6 +25,8 @@ long-lived CUA Driver service.
   - The Codex or ChatGPT application and app server.
   - `cua-driver serve`, ordinary Node.js processes, artifact servers, and
     unrelated MCP servers.
+  - Continuous Computer History capture (`event-stream`) and other
+    `SkyComputerUseClient` modes or installation paths.
   - Inferring which Codex task owns a helper.
   - Inspecting or persisting prompts, documents, session IDs, or command-line
     arguments.

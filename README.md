@@ -430,8 +430,10 @@ The shared safety rules are:
 - Whole-Mac keyboard and pointer activity does not reset Simulator inactivity.
 - Active current-user `xcodebuild` and `xctest` processes block Simulator
   shutdown.
-- Codex helper cleanup matches only fixed Computer Use, `node_repl`,
-  `unified-computer-use`, and `cua-driver mcp` signatures. It protects
+- Codex helper cleanup matches only fixed Computer Use service,
+  `SkyComputerUseClient computer-history mcp`, `node_repl`,
+  `unified-computer-use`, and `cua-driver mcp` signatures. It protects continuous
+  Computer History capture (`event-stream`), other client modes,
   `cua-driver serve`, unrelated Node.js processes, and the Codex app server.
 - Codex helper cleanup revalidates an exact PID, sends only `SIGTERM`, and never
   stores the command line used for classification.
