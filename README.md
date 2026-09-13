@@ -210,11 +210,16 @@ consume disk space.
 At 04:00 local time, Canaryd checks fixed safe roots, validates every candidate,
 and requires Xcode/Cargo directory trees to be untouched for seven days. It
 skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
-and skips Rust cleanup while `cargo` or `rustc` is active. It never follows
-symbolic links or removes source, Archives, Simulator data, or Cargo caches.
+and skips Rust cleanup while `cargo` or `rustc` is active. A service or other
+executable running from a Cargo target also protects that target. It never
+follows symbolic links or removes source, Archives, Simulator data, or Cargo
+registry caches.
 
 Cargo discovery includes `~/.codex/workspace-backups` as well as live projects
-and Codex worktrees. Only validated Cargo build directories are eligible;
+and Codex worktrees, plus Cargo targets directly under `/private/tmp`.
+Temporary targets must belong to the current user and contain both Cargo
+markers; temporary project containers are not searched recursively.
+Only validated Cargo build directories are eligible;
 backup archives, unmerged changes, development data, and test evidence remain.
 The seven-day rule and active-build checks also apply to backup artifacts.
 
@@ -222,8 +227,20 @@ The same daily run removes Bazel output bases only when their workspace marker
 and directory hash agree, and the recorded local workspace no longer exists.
 An existing workspace always keeps its cache. Canaryd rechecks server PIDs,
 the native cache lock, and the missing workspace before deletion. Busy or
-unverifiable caches and shared download/install caches remain untouched.
+unverifiable output bases remain untouched.
 Orphaned Bazel caches do not need to reach the seven-day retention period.
+
+Shared Bazel repository caches have a separate seven-day rule: old download
+entries and extracted repository hash directories can be reclaimed while
+recent entries stay. Cleanup requires no active Bazel client or server, locks
+all known output bases, and uses Bazel's `contents/gc_lock` for extracted
+repositories. Running executables protect their cache directories. Unknown
+layouts and unavailable activity checks retain the cache; install caches stay.
+Shared-cache cleanup is incremental: each user cache gets up to 16 eligible
+hashes and a 15-second soft budget, within a 60-second round budget. Candidate
+order varies across runs so one protected prefix does not monopolize cleanup.
+An in-progress tree operation can finish after the budget; locks are released
+before a later round retries the remainder.
 Run `canaryd clean` to apply these checks manually.
 
 <!-- readme-video:start -->
@@ -304,7 +321,7 @@ canaryd status
 | Agent | Schedule | Work |
 | --- | ---: | --- |
 | Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
-| Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup targets, and orphaned Bazel caches |
+| Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup and temporary targets, orphaned Bazel output bases, and stale shared repository entries |
 
 Use `canaryd stop` to stop both tasks until you run `canaryd start` again.
 Status, history, help, and manual checks do not start background tasks. You do
@@ -380,7 +397,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd clean` | Clean stale Xcode/Cargo outputs and orphaned Bazel caches now |
+| `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd start` | Start background monitoring, including after login |
 | `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
@@ -445,10 +462,14 @@ The shared safety rules are:
   never stores the command line used for classification.
 - Xcode/Cargo cleanup pauses while related tools are active and removes only
   validated, reproducible directories whose complete trees are at least seven
-  days old, including Cargo targets in Codex workspace backups.
-- Bazel cleanup requires a missing local workspace, no active server, and an
+  days old, including Cargo targets in Codex workspace backups and directly
+  under `/private/tmp`. Targets containing running executables are retained.
+- Bazel output-base cleanup requires a missing local workspace, no active server, and an
   exclusive native lock on that output base. Starting clients or unavailable
-  process inspection block deletion; shared download/install caches remain.
+  process inspection block deletion.
+- Shared Bazel repository entries require seven days without modification,
+  no active Bazel client or server, and all known output-base locks. Extracted
+  repositories additionally use the native GC lock; install caches remain.
 - Workspace backup containers, archives, unmerged changes, development data,
   and test evidence outside validated build directories are retained.
 - Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,

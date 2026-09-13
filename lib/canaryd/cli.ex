@@ -208,7 +208,7 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
-      canaryd clean              remove stale Xcode/Cargo artifacts and orphaned Bazel caches
+      canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
       canaryd start              start background monitoring (also after login)
       canaryd stop               stop background monitoring until the next start
@@ -404,7 +404,8 @@ defmodule Canaryd.CLI do
       failures: length(result.failures),
       xcode_skip: result.skipped.xcode,
       rust_skip: result.skipped.rust,
-      bazel_skip: result.skipped.bazel
+      bazel_skip: result.skipped.bazel,
+      bazel_repository_skip: Map.get(result.skipped, :bazel_repository)
     }
 
     Store.with_tables(fn _state, events ->
