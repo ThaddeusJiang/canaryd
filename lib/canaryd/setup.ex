@@ -164,7 +164,7 @@ defmodule Canaryd.Setup do
       <key>EnvironmentVariables</key>
       <dict>
         <key>PATH</key>
-        <string>#{erlang_bin()}:/usr/local/bin:/usr/bin:/bin</string>
+        <string>#{erlang_bin()}:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
       </dict>
     </dict>
     </plist>
