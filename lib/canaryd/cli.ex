@@ -3,11 +3,13 @@ defmodule Canaryd.CLI do
 
   alias Canaryd.{
     BuildCleanup,
+    BuildCleanupConfig,
     Checker,
     CodexProcessMonitor,
     Duration,
     MemoryMonitor,
     NotificationHelper,
+    Paths,
     PlaywrightBrowserMonitor,
     SimulatorMonitor,
     Setup,
@@ -67,6 +69,19 @@ defmodule Canaryd.CLI do
       {:error, reason} ->
         IO.puts("build cleanup failed: #{inspect(reason)}")
     end
+  end
+
+  defp dispatch(["config", "build-retention"], options) do
+    options
+    |> Keyword.get(:home, Paths.home_dir())
+    |> BuildCleanupConfig.read()
+    |> print_build_retention()
+  end
+
+  defp dispatch(["config", "build-retention", value], options) do
+    value
+    |> BuildCleanupConfig.set(Keyword.get(options, :home, Paths.home_dir()))
+    |> print_build_retention()
   end
 
   defp dispatch(argv, _options), do: dispatch(argv)
@@ -208,12 +223,21 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
-      canaryd clean              remove stale Xcode/Cargo artifacts and orphaned Bazel caches
+      canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
+      canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
       canaryd start              start background monitoring (also after login)
       canaryd stop               stop background monitoring until the next start
       canaryd --version          show the installed version
     """)
+  end
+
+  defp print_build_retention({:ok, retention}) do
+    IO.puts("build retention: #{BuildCleanupConfig.format(retention)}")
+  end
+
+  defp print_build_retention({:error, reason}) do
+    IO.puts("build retention failed: #{inspect(reason)}; expected 1h..87600h")
   end
 
   defp app_check_summary(%{status: :available, detected: detected, actions: actions}) do
@@ -404,7 +428,8 @@ defmodule Canaryd.CLI do
       failures: length(result.failures),
       xcode_skip: result.skipped.xcode,
       rust_skip: result.skipped.rust,
-      bazel_skip: result.skipped.bazel
+      bazel_skip: result.skipped.bazel,
+      bazel_repository_skip: Map.get(result.skipped, :bazel_repository)
     }
 
     Store.with_tables(fn _state, events ->

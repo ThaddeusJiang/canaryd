@@ -1,15 +1,24 @@
 defmodule Canaryd.BuildCleanup do
   @moduledoc """
-  Removes stale Xcode/Cargo artifacts and orphaned Bazel output bases.
+  Removes stale Xcode/Cargo artifacts, orphaned Bazel output bases, and stale
+  shared Bazel repository entries.
 
   Candidate discovery and process checks are intentionally conservative. A
   path is removed only after its identity and active build state have been
   revalidated, together with tree age or a missing workspace as appropriate.
   """
 
-  alias Canaryd.{ArtifactTree, BazelCache, Duration, FileLock, Paths}
+  alias Canaryd.{
+    ArtifactProcesses,
+    ArtifactTree,
+    BazelCache,
+    BazelRepositoryCache,
+    BuildCleanupConfig,
+    Duration,
+    FileLock,
+    Paths
+  }
 
-  @retention Duration.days(7)
   @cargo_signature "Signature: 8a477f597d28d172789f06886806bc55"
   @cargo_marker "cache directory tag created by cargo"
   @marker_limit 4096
@@ -41,7 +50,7 @@ defmodule Canaryd.BuildCleanup do
                   ])
 
   @doc false
-  def retention, do: @retention
+  def retention, do: BuildCleanupConfig.default_retention()
 
   @doc "Run one exclusive build cleanup round."
   def run(options \\ []) do
@@ -52,7 +61,15 @@ defmodule Canaryd.BuildCleanup do
 
     File.mkdir_p!(Path.dirname(lock_path))
 
-    FileLock.with_lock(lock_path, fn -> {:ok, cleanup(home, options)} end, create: true)
+    FileLock.with_lock(
+      lock_path,
+      fn ->
+        with {:ok, retention} <- BuildCleanupConfig.read(home) do
+          {:ok, cleanup(home, retention, options)}
+        end
+      end,
+      create: true
+    )
   end
 
   @doc false
@@ -89,16 +106,24 @@ defmodule Canaryd.BuildCleanup do
     |> MapSet.new()
   end
 
-  defp cleanup(home, options) do
+  defp cleanup(home, retention, options) do
     now = Keyword.get(options, :now, DateTime.utc_now())
     process_scanner = Keyword.get(options, :process_scanner, &active_process_names/0)
     rust_roots = Keyword.get_lazy(options, :rust_roots, fn -> default_rust_roots(home) end)
+
+    rust_context = %{
+      home: home,
+      tmp_root: Keyword.get(options, :rust_tmp_root, "/private/tmp"),
+      stat_reader: Keyword.get(options, :stat_reader, &File.lstat/1),
+      activity_scanner: Keyword.get(options, :rust_activity_scanner, &ArtifactProcesses.scan/0)
+    }
+
     xcode_root = Path.join([home, "Library", "Developer", "Xcode", "DerivedData"])
 
     result = %{
       removed: [],
       reclaimed_bytes: 0,
-      skipped: %{xcode: nil, rust: nil, bazel: nil},
+      skipped: %{xcode: nil, rust: nil, bazel: nil, bazel_repository: nil},
       failures: []
     }
 
@@ -106,7 +131,7 @@ defmodule Canaryd.BuildCleanup do
       {:ok, process_names} ->
         cutoff =
           now
-          |> Duration.add(-@retention)
+          |> Duration.add(-retention)
           |> DateTime.to_unix(:second)
 
         result
@@ -120,8 +145,12 @@ defmodule Canaryd.BuildCleanup do
         )
         |> cleanup_category(
           :rust,
-          rust_candidates(rust_roots, filesystem_root: home),
-          home,
+          rust_candidates(rust_roots,
+            filesystem_root: home,
+            stat_reader: rust_context.stat_reader
+          ) ++
+            temporary_rust_candidates(rust_context),
+          rust_context,
           cutoff,
           process_names,
           process_scanner
@@ -140,14 +169,34 @@ defmodule Canaryd.BuildCleanup do
         )
         |> Map.update!(:removed, &Enum.reverse/1)
         |> Map.update!(:failures, &Enum.reverse/1)
+        |> cleanup_repositories(home, cutoff, options)
 
       {:error, _reason} ->
         put_in(result.skipped, %{
           xcode: :process_scan_unavailable,
           rust: :process_scan_unavailable,
-          bazel: :process_scan_unavailable
+          bazel: :process_scan_unavailable,
+          bazel_repository: :process_scan_unavailable
         })
     end
+  end
+
+  defp cleanup_repositories(result, home, cutoff, options) do
+    repositories =
+      BazelRepositoryCache.run(home, cutoff,
+        process_scanner: Keyword.get(options, :process_scanner, &active_process_names/0),
+        activity_scanner:
+          Keyword.get(options, :bazel_activity_scanner, &BazelCache.scan_activity/0),
+        runtime_scanner: Keyword.get(options, :rust_activity_scanner, &ArtifactProcesses.scan/0)
+      )
+
+    %{
+      result
+      | removed: result.removed ++ repositories.removed,
+        reclaimed_bytes: result.reclaimed_bytes + repositories.reclaimed_bytes,
+        failures: result.failures ++ repositories.failures,
+        skipped: Map.put(result.skipped, :bazel_repository, repositories.skipped)
+    }
   end
 
   defp cleanup_category(
@@ -209,6 +258,25 @@ defmodule Canaryd.BuildCleanup do
     end
   end
 
+  defp cleanup_candidate(:rust, path, context, cutoff, process_scanner) do
+    with true <- valid_candidate?(:rust, path, context),
+         {:ok, stat} <- context.stat_reader.(path),
+         identity = artifact_identity(stat),
+         {:stale, bytes} <- tree_status(path, cutoff, context.stat_reader),
+         revalidate = fn -> rust_ready(path, context, identity, cutoff, process_scanner) end,
+         :ok <- revalidate.(),
+         {:ok, _removed_path} <- ArtifactTree.remove(path, revalidate) do
+      {:removed, bytes}
+    else
+      false -> :kept
+      :recent -> :kept
+      :kept -> :kept
+      {:skip, _reason} = skip -> skip
+      {:error, _path, reason} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp cleanup_candidate(kind, path, validation_root, cutoff, process_scanner) do
     with true <- valid_candidate?(kind, path, validation_root),
          {:stale, bytes} <- tree_status(path, cutoff),
@@ -230,6 +298,28 @@ defmodule Canaryd.BuildCleanup do
       true -> {:error, :active_build}
     end
   end
+
+  defp rust_ready(path, context, identity, cutoff, process_scanner) do
+    with {:ok, process_names} <- process_scanner.(),
+         false <- blocked?(:rust, process_names),
+         {:ok, activity} <- context.activity_scanner.(),
+         :idle <- ArtifactProcesses.activity(path, activity),
+         true <- valid_candidate?(:rust, path, context),
+         {:ok, stat} <- context.stat_reader.(path),
+         ^identity <- artifact_identity(stat),
+         {:stale, _bytes} <- tree_status(path, cutoff, context.stat_reader) do
+      :ok
+    else
+      false -> :kept
+      true -> {:error, :active_build}
+      :recent -> :kept
+      reason when reason in [:active_target, :unverifiable_target] -> {:skip, reason}
+      {:error, _reason} -> {:error, :process_scan_unavailable}
+      _identity -> :kept
+    end
+  end
+
+  defp artifact_identity(stat), do: {stat.major_device, stat.minor_device, stat.inode, stat.uid}
 
   defp artifact_ready(kind, path, root, cutoff, process_scanner) do
     with {:ok, process_names} <- process_scanner.(),
@@ -268,8 +358,43 @@ defmodule Canaryd.BuildCleanup do
     Path.dirname(expanded_path) == expanded_root and directory_without_symlink?(expanded_path)
   end
 
-  defp valid_candidate?(:rust, path, home),
-    do: safe_directory?(path, home) and cargo_target?(path)
+  defp valid_candidate?(:rust, path, context) do
+    root = if Path.dirname(path) == context.tmp_root, do: context.tmp_root, else: context.home
+
+    with {:ok, %{uid: owner}} <- context.stat_reader.(context.home),
+         true <- directory_ancestry?(root, context.stat_reader),
+         true <- safe_directory?(path, root, context.stat_reader),
+         {:ok, %{uid: ^owner, major_device: device}} <- context.stat_reader.(path),
+         true <- cargo_target?(path) do
+      Enum.all?(["CACHEDIR.TAG", ".rustc_info.json"], fn marker ->
+        match?(
+          {:ok, %{type: :regular, uid: ^owner, major_device: ^device}},
+          context.stat_reader.(Path.join(path, marker))
+        )
+      end)
+    else
+      _ -> false
+    end
+  end
+
+  defp temporary_rust_candidates(context) do
+    root = context.tmp_root
+
+    if directory_ancestry?(root, context.stat_reader) do
+      case File.ls(root) do
+        {:ok, entries} ->
+          entries
+          |> Enum.map(&Path.join(root, &1))
+          |> Enum.filter(&valid_candidate?(:rust, &1, context))
+          |> Enum.sort()
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  end
 
   defp blocked?(:bazel, process_names),
     do: Enum.any?(["bazel", "bazelisk"], &MapSet.member?(process_names, &1))
@@ -373,38 +498,52 @@ defmodule Canaryd.BuildCleanup do
     match?({:ok, %{type: :directory}}, File.lstat(path))
   end
 
-  defp safe_directory?(path, root) do
-    with {:ok, %{type: :directory, major_device: device}} <- File.lstat(root) do
+  defp safe_directory?(path, root, stat_reader \\ &File.lstat/1) do
+    with {:ok, %{type: :directory, major_device: device}} <- stat_reader.(root) do
       (path == root or String.starts_with?(path, root <> "/")) and
-        same_filesystem_directory?(path, device, &File.lstat/1) and
-        (path == root or safe_directory?(Path.dirname(path), root))
+        same_filesystem_directory?(path, device, stat_reader) and
+        (path == root or safe_directory?(Path.dirname(path), root, stat_reader))
     else
       _ -> false
     end
+  end
+
+  defp directory_ancestry?(path, stat_reader) do
+    Path.type(path) == :absolute and Path.expand(path) == path and
+      match?({:ok, %{type: :directory}}, stat_reader.(path)) and
+      (path == "/" or directory_ancestry?(Path.dirname(path), stat_reader))
   end
 
   defp regular_file_without_symlink?(path) do
     match?({:ok, %{type: :regular}}, File.lstat(path))
   end
 
-  defp tree_status(path, cutoff) do
-    with {:ok, stat} <- File.lstat(path, time: :posix),
+  defp tree_status(path, cutoff, stat_reader \\ &File.lstat/1) do
+    with {:ok, %{major_device: device}} <- stat_reader.(path) do
+      tree_status(path, cutoff, stat_reader, device)
+    end
+  end
+
+  defp tree_status(path, cutoff, stat_reader, device) do
+    with {:ok, %{major_device: ^device}} <- stat_reader.(path),
+         {:ok, stat} <- File.lstat(path, time: :posix),
          false <- not is_nil(cutoff) and stat.mtime > cutoff do
       case stat.type do
-        :directory -> directory_tree_status(path, stat.size, cutoff)
+        :directory -> directory_tree_status(path, stat.size, cutoff, stat_reader, device)
         _type -> {:stale, stat.size}
       end
     else
       true -> :recent
+      {:ok, _other_device} -> {:error, :different_filesystem}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp directory_tree_status(path, own_size, cutoff) do
+  defp directory_tree_status(path, own_size, cutoff, stat_reader, device) do
     case File.ls(path) do
       {:ok, entries} ->
         Enum.reduce_while(entries, {:stale, own_size}, fn entry, {:stale, bytes} ->
-          case tree_status(Path.join(path, entry), cutoff) do
+          case tree_status(Path.join(path, entry), cutoff, stat_reader, device) do
             {:stale, entry_bytes} -> {:cont, {:stale, bytes + entry_bytes}}
             :recent -> {:halt, :recent}
             {:error, _reason} = error -> {:halt, error}
@@ -417,9 +556,9 @@ defmodule Canaryd.BuildCleanup do
   end
 
   defp active_process_names do
-    with {uid, 0} <- System.cmd("id", ["-u"], stderr_to_stdout: true),
-         {output, 0} <-
-           System.cmd("ps", ["-U", String.trim(uid), "-o", "comm="], stderr_to_stdout: true) do
+    with {:ok, uid} <- BazelCache.command("/usr/bin/id", ["-u"]),
+         {:ok, output} <-
+           BazelCache.command("/bin/ps", ["-ww", "-U", String.trim(uid), "-o", "comm="]) do
       {:ok, parse_process_names(output)}
     else
       _ -> {:error, :unavailable}

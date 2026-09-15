@@ -10,15 +10,256 @@ defmodule Canaryd.BuildCleanupTest do
 
   setup do
     root =
-      Path.join(System.tmp_dir!(), "canaryd-build-cleanup-#{System.unique_integer([:positive])}")
+      Path.join("/private/tmp", "canaryd-build-cleanup-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf(root) end)
     %{root: root}
   end
 
-  test "uses a fixed seven-day retention" do
-    assert BuildCleanup.retention() == Duration.days(7)
+  test "defaults to a 24-hour retention" do
+    assert BuildCleanup.retention() == Duration.hours(24)
+  end
+
+  test "the default cutoff is shared by Xcode, temporary Cargo and Bazel entries", %{root: root} do
+    now = ~U[2030-01-01 00:00:00Z]
+    stale = retention_candidates(root, "old")
+    recent = retention_candidates(root, "recent")
+    for path <- stale, do: age_tree(path, Duration.add(now, -Duration.hours(24)))
+
+    for path <- recent,
+        do: age_tree(path, Duration.add(now, -Duration.hours(24) + Duration.seconds(1)))
+
+    result = run(root, now: now, rust_roots: [])
+    assert Enum.sort(Enum.map(result.removed, & &1.path)) == Enum.sort(stale)
+    assert Enum.all?(recent, &File.dir?/1)
+    assert result.failures == []
+  end
+
+  test "a saved retention is reread each round and freezes one cutoff per round", %{root: root} do
+    now = ~U[2030-01-01 00:00:00Z]
+    candidates = retention_candidates(root, "old")
+    for path <- candidates, do: age_tree(path, Duration.add(now, -Duration.hours(36)))
+    config = Path.join(root, "Library/Application Support/canaryd/build-cleanup-retention")
+    File.mkdir_p!(Path.dirname(config))
+    File.write!(config, "48h\n")
+
+    result =
+      run(root,
+        now: now,
+        rust_roots: [],
+        process_scanner: fn ->
+          File.write!(config, "24h\n")
+          {:ok, MapSet.new()}
+        end
+      )
+
+    assert result.removed == []
+    assert Enum.all?(candidates, &File.dir?/1)
+
+    next = run(root, now: now, rust_roots: [])
+    assert Enum.sort(Enum.map(next.removed, & &1.path)) == Enum.sort(candidates)
+  end
+
+  test "invalid configuration stops cleanup before process inspection or deletion", %{root: root} do
+    candidate = cargo_target(Path.join([root, ".rust-tmp", "idle"]))
+    config = Path.join(root, "Library/Application Support/canaryd/build-cleanup-retention")
+    File.mkdir_p!(Path.dirname(config))
+    File.write!(config, "0h\n")
+
+    assert {:error, _reason} =
+             BuildCleanup.run(
+               home: root,
+               lock_path: Path.join(root, "cleanup.lock"),
+               rust_roots: [],
+               rust_tmp_root: Path.join(root, ".rust-tmp"),
+               process_scanner: fn -> flunk("invalid configuration must stop before scanning") end
+             )
+
+    assert File.dir?(candidate)
+  end
+
+  test "removes only stale direct temporary Cargo targets, preserving sources and recent trees",
+       %{root: root} do
+    temporary = Path.join(root, ".rust-tmp")
+    stale = cargo_target(Path.join(temporary, "nmem-build"))
+    recent = cargo_target(Path.join(temporary, "recent-build"))
+    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+    nested = cargo_target(Path.join([temporary, "project", "target"]))
+    source = Path.join([temporary, "project", "Cargo.toml"])
+    File.write!(source, "[package]")
+
+    result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_roots: [])
+
+    assert [%{kind: :rust, path: ^stale}] = result.removed
+    refute File.exists?(stale)
+    assert File.dir?(recent)
+    assert File.dir?(nested)
+    assert File.read!(source) == "[package]"
+  end
+
+  test "temporary targets require owned directories and complete owned Cargo markers", %{
+    root: root
+  } do
+    temporary = Path.join(root, ".rust-tmp")
+    foreign = cargo_target(Path.join(temporary, "foreign"))
+    foreign_marker = cargo_target(Path.join(temporary, "foreign-marker"))
+    incomplete = cargo_target(Path.join(temporary, "incomplete"))
+    File.rm!(Path.join(incomplete, ".rustc_info.json"))
+    linked = cargo_target(Path.join(temporary, "linked-marker"))
+    marker = Path.join(root, "external-tag")
+    File.rename!(Path.join(linked, "CACHEDIR.TAG"), marker)
+    File.ln_s!(marker, Path.join(linked, "CACHEDIR.TAG"))
+
+    reader = fn path ->
+      case File.lstat(path) do
+        {:ok, stat} when path == foreign ->
+          {:ok, %{stat | uid: stat.uid + 1}}
+
+        {:ok, stat} ->
+          if path == Path.join(foreign_marker, ".rustc_info.json"),
+            do: {:ok, %{stat | uid: stat.uid + 1}},
+            else: {:ok, stat}
+
+        other ->
+          other
+      end
+    end
+
+    result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_roots: [], stat_reader: reader)
+    assert result.removed == []
+    assert Enum.all?([foreign, foreign_marker, incomplete, linked], &File.dir?/1)
+  end
+
+  test "temporary discovery rejects symlinks and foreign filesystems", %{root: root} do
+    temporary = Path.join(root, ".rust-tmp")
+    mounted = cargo_target(Path.join(temporary, "mounted"))
+    outside = cargo_target(Path.join(root, ".protected-target"))
+    File.ln_s!(outside, Path.join(temporary, "linked-target"))
+
+    reader = fn path ->
+      refute String.starts_with?(path, mounted <> "/"), "must not inspect mounted children"
+
+      case File.lstat(path) do
+        {:ok, stat} when path == mounted -> {:ok, %{stat | major_device: stat.major_device + 1}}
+        other -> other
+      end
+    end
+
+    assert run(root, now: ~U[2030-01-01 00:00:00Z], rust_roots: [], stat_reader: reader).removed ==
+             []
+
+    assert File.dir?(mounted)
+    assert File.dir?(outside)
+  end
+
+  test "temporary discovery rejects a symlink anywhere in its root ancestry", %{root: root} do
+    actual = Path.join(root, ".actual-temporary")
+    target = cargo_target(Path.join([actual, "tmp", "server"]))
+    alias_root = Path.join(root, ".linked-temporary")
+    File.ln_s!(actual, alias_root)
+
+    result =
+      run(root,
+        now: ~U[2030-01-01 00:00:00Z],
+        rust_roots: [],
+        rust_tmp_root: Path.join(alias_root, "tmp")
+      )
+
+    assert result.removed == []
+    assert File.dir?(target)
+  end
+
+  test "running executables preserve their home and temporary targets with path boundaries", %{
+    root: root
+  } do
+    home_target = cargo_target(Path.join([root, "Projects", "server", "target"]))
+    temporary = cargo_target(Path.join([root, ".rust-tmp", "service with spaces"]))
+    idle = cargo_target(temporary <> "-idle")
+
+    result =
+      run(root,
+        now: ~U[2030-01-01 00:00:00Z],
+        rust_activity_scanner: fn ->
+          {:ok,
+           %{
+             paths: [Path.join(home_target, "debug/app"), Path.join(temporary, "debug/app")],
+             names: MapSet.new()
+           }}
+        end
+      )
+
+    assert Enum.map(result.removed, & &1.path) == [idle]
+    assert result.skipped.rust == :active_target
+    assert File.dir?(home_target)
+    assert File.dir?(temporary)
+  end
+
+  test "unavailable runtime inspection preserves temporary targets", %{root: root} do
+    target = cargo_target(Path.join([root, ".rust-tmp", "server"]))
+
+    result =
+      run(root,
+        now: ~U[2030-01-01 00:00:00Z],
+        rust_activity_scanner: fn -> {:error, :unavailable} end
+      )
+
+    assert result.removed == []
+    assert result.skipped.rust == :process_scan_unavailable
+    assert File.dir?(target)
+  end
+
+  test "rechecks running executables before the final removal", %{root: root} do
+    target = cargo_target(Path.join([root, ".rust-tmp", "server"]))
+
+    scanner = fn ->
+      scans = Process.get(:runtime_scans, 0)
+      Process.put(:runtime_scans, scans + 1)
+      paths = if scans < 2, do: [], else: [Path.join(target, "debug/app")]
+      {:ok, %{paths: paths, names: MapSet.new()}}
+    end
+
+    result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_activity_scanner: scanner)
+    assert result.removed == []
+    assert result.skipped.rust == :active_target
+    assert File.dir?(target)
+  end
+
+  test "a replacement target is never removed under an earlier candidate identity", %{root: root} do
+    target = cargo_target(Path.join([root, ".rust-tmp", "server"]))
+
+    scanner = fn ->
+      unless Process.get(:target_replaced) do
+        Process.put(:target_replaced, true)
+        File.rename!(target, target <> "-saved")
+        cargo_target(target)
+      end
+
+      {:ok, %{paths: [], names: MapSet.new()}}
+    end
+
+    result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_activity_scanner: scanner)
+    assert result.removed == []
+    assert File.dir?(target)
+    assert File.dir?(target <> "-saved")
+  end
+
+  test "a filesystem mounted inside a Cargo target prevents any deletion", %{root: root} do
+    target = cargo_target(Path.join([root, ".rust-tmp", "server"]))
+    mounted = Path.join(target, "debug")
+
+    reader = fn path ->
+      refute String.starts_with?(path, mounted <> "/"), "must not inspect mounted children"
+
+      case File.lstat(path) do
+        {:ok, stat} when path == mounted -> {:ok, %{stat | major_device: stat.major_device + 1}}
+        other -> other
+      end
+    end
+
+    result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_roots: [], stat_reader: reader)
+    assert result.removed == []
+    assert File.dir?(target)
   end
 
   test "daily discovery removes stale backup targets but preserves the backup and recent outputs",
@@ -237,7 +478,14 @@ defmodule Canaryd.BuildCleanupTest do
       )
 
     assert result.removed == []
-    assert result.skipped == %{xcode: :active_build, rust: :active_build, bazel: nil}
+
+    assert result.skipped == %{
+             xcode: :active_build,
+             rust: :active_build,
+             bazel: nil,
+             bazel_repository: nil
+           }
+
     assert File.dir?(xcode_candidate)
     assert File.dir?(cargo_candidate)
   end
@@ -258,7 +506,8 @@ defmodule Canaryd.BuildCleanupTest do
     assert result.skipped == %{
              xcode: :process_scan_unavailable,
              rust: :process_scan_unavailable,
-             bazel: :process_scan_unavailable
+             bazel: :process_scan_unavailable,
+             bazel_repository: :process_scan_unavailable
            }
 
     assert File.dir?(xcode_candidate)
@@ -297,9 +546,16 @@ defmodule Canaryd.BuildCleanupTest do
     assert {:ok, _} =
              BuildCleanup.run(
                home: root,
+               rust_tmp_root: Path.join(root, ".rust-tmp"),
                lock_path: lock_path,
                process_scanner: fn ->
-                 assert {:error, :locked} = BuildCleanup.run(home: root, lock_path: lock_path)
+                 assert {:error, :locked} =
+                          BuildCleanup.run(
+                            home: root,
+                            rust_tmp_root: Path.join(root, ".rust-tmp"),
+                            lock_path: lock_path
+                          )
+
                  {:ok, MapSet.new()}
                end
              )
@@ -317,6 +573,7 @@ defmodule Canaryd.BuildCleanupTest do
       spawn(fn ->
         BuildCleanup.run(
           home: root,
+          rust_tmp_root: Path.join(root, ".rust-tmp"),
           lock_path: Path.join(root, "cleanup.lock"),
           process_scanner: fn ->
             send(parent, :cleanup_locked)
@@ -483,6 +740,34 @@ defmodule Canaryd.BuildCleanupTest do
     assert File.read!(protected) == "keep"
   end
 
+  defp retention_candidates(root, name) do
+    hash = if name == "old", do: "a", else: "b"
+
+    repository =
+      Path.join(
+        root,
+        "Library/Caches/bazel/_bazel_test/cache/repos/v1/content_addressable/sha256/" <>
+          String.duplicate(hash, 64)
+      )
+
+    File.mkdir_p!(repository)
+    File.write!(Path.join(repository, "file"), "downloaded dependency")
+
+    [
+      xcode_candidate(root, name),
+      cargo_target(Path.join([root, ".rust-tmp", name])),
+      repository
+    ]
+  end
+
+  defp age_tree(path, at) do
+    if File.lstat!(path).type == :directory do
+      Enum.each(File.ls!(path), &age_tree(Path.join(path, &1), at))
+    end
+
+    File.touch!(path, at |> DateTime.to_naive() |> NaiveDateTime.to_erl())
+  end
+
   defp bazel_cache(root, workspace) do
     hash = :crypto.hash(:md5, workspace) |> Base.encode16(case: :lower)
     path = Path.join([root, "Library", "Caches", "bazel", "_bazel_test", hash])
@@ -498,8 +783,10 @@ defmodule Canaryd.BuildCleanupTest do
       Keyword.merge(
         [
           home: root,
+          rust_tmp_root: Path.join(root, ".rust-tmp"),
           lock_path: Path.join(root, "cleanup.lock"),
           process_scanner: fn -> {:ok, MapSet.new()} end,
+          rust_activity_scanner: fn -> {:ok, %{paths: [], names: MapSet.new()}} end,
           bazel_activity_scanner: fn -> {:ok, %{pids: MapSet.new()}} end
         ],
         options
