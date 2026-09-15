@@ -17,8 +17,66 @@ defmodule Canaryd.BuildCleanupTest do
     %{root: root}
   end
 
-  test "uses a fixed seven-day retention" do
-    assert BuildCleanup.retention() == Duration.days(7)
+  test "defaults to a 24-hour retention" do
+    assert BuildCleanup.retention() == Duration.hours(24)
+  end
+
+  test "the default cutoff is shared by Xcode, temporary Cargo and Bazel entries", %{root: root} do
+    now = ~U[2030-01-01 00:00:00Z]
+    stale = retention_candidates(root, "old")
+    recent = retention_candidates(root, "recent")
+    for path <- stale, do: age_tree(path, Duration.add(now, -Duration.hours(24)))
+
+    for path <- recent,
+        do: age_tree(path, Duration.add(now, -Duration.hours(24) + Duration.seconds(1)))
+
+    result = run(root, now: now, rust_roots: [])
+    assert Enum.sort(Enum.map(result.removed, & &1.path)) == Enum.sort(stale)
+    assert Enum.all?(recent, &File.dir?/1)
+    assert result.failures == []
+  end
+
+  test "a saved retention is reread each round and freezes one cutoff per round", %{root: root} do
+    now = ~U[2030-01-01 00:00:00Z]
+    candidates = retention_candidates(root, "old")
+    for path <- candidates, do: age_tree(path, Duration.add(now, -Duration.hours(36)))
+    config = Path.join(root, "Library/Application Support/canaryd/build-cleanup-retention")
+    File.mkdir_p!(Path.dirname(config))
+    File.write!(config, "48h\n")
+
+    result =
+      run(root,
+        now: now,
+        rust_roots: [],
+        process_scanner: fn ->
+          File.write!(config, "24h\n")
+          {:ok, MapSet.new()}
+        end
+      )
+
+    assert result.removed == []
+    assert Enum.all?(candidates, &File.dir?/1)
+
+    next = run(root, now: now, rust_roots: [])
+    assert Enum.sort(Enum.map(next.removed, & &1.path)) == Enum.sort(candidates)
+  end
+
+  test "invalid configuration stops cleanup before process inspection or deletion", %{root: root} do
+    candidate = cargo_target(Path.join([root, ".rust-tmp", "idle"]))
+    config = Path.join(root, "Library/Application Support/canaryd/build-cleanup-retention")
+    File.mkdir_p!(Path.dirname(config))
+    File.write!(config, "0h\n")
+
+    assert {:error, _reason} =
+             BuildCleanup.run(
+               home: root,
+               lock_path: Path.join(root, "cleanup.lock"),
+               rust_roots: [],
+               rust_tmp_root: Path.join(root, ".rust-tmp"),
+               process_scanner: fn -> flunk("invalid configuration must stop before scanning") end
+             )
+
+    assert File.dir?(candidate)
   end
 
   test "removes only stale direct temporary Cargo targets, preserving sources and recent trees",
@@ -680,6 +738,34 @@ defmodule Canaryd.BuildCleanupTest do
     assert [%{kind: :bazel, path: ^candidate}] = result.removed
     assert File.stat!(protected).mode == before_mode
     assert File.read!(protected) == "keep"
+  end
+
+  defp retention_candidates(root, name) do
+    hash = if name == "old", do: "a", else: "b"
+
+    repository =
+      Path.join(
+        root,
+        "Library/Caches/bazel/_bazel_test/cache/repos/v1/content_addressable/sha256/" <>
+          String.duplicate(hash, 64)
+      )
+
+    File.mkdir_p!(repository)
+    File.write!(Path.join(repository, "file"), "downloaded dependency")
+
+    [
+      xcode_candidate(root, name),
+      cargo_target(Path.join([root, ".rust-tmp", name])),
+      repository
+    ]
+  end
+
+  defp age_tree(path, at) do
+    if File.lstat!(path).type == :directory do
+      Enum.each(File.ls!(path), &age_tree(Path.join(path, &1), at))
+    end
+
+    File.touch!(path, at |> DateTime.to_naive() |> NaiveDateTime.to_erl())
   end
 
   defp bazel_cache(root, workspace) do

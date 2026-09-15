@@ -208,7 +208,7 @@ source may already be committed while reproducible build output continues to
 consume disk space.
 
 At 04:00 local time, Canaryd checks fixed safe roots, validates every candidate,
-and requires Xcode/Cargo directory trees to be untouched for seven days. It
+and requires Xcode/Cargo directory trees to be untouched for 24 hours by default. It
 skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
 and skips Rust cleanup while `cargo` or `rustc` is active. A service or other
 executable running from a Cargo target also protects that target. It never
@@ -221,16 +221,16 @@ Temporary targets must belong to the current user and contain both Cargo
 markers; temporary project containers are not searched recursively.
 Only validated Cargo build directories are eligible;
 backup archives, unmerged changes, development data, and test evidence remain.
-The seven-day rule and active-build checks also apply to backup artifacts.
+The configured retention and active-build checks also apply to backup artifacts.
 
 The same daily run removes Bazel output bases only when their workspace marker
 and directory hash agree, and the recorded local workspace no longer exists.
 An existing workspace always keeps its cache. Canaryd rechecks server PIDs,
 the native cache lock, and the missing workspace before deletion. Busy or
 unverifiable output bases remain untouched.
-Orphaned Bazel caches do not need to reach the seven-day retention period.
+Orphaned Bazel output bases do not have an age threshold.
 
-Shared Bazel repository caches have a separate seven-day rule: old download
+Shared Bazel repository caches use the same configured retention: old download
 entries and extracted repository hash directories can be reclaimed while
 recent entries stay. Cleanup requires no active Bazel client or server, locks
 all known output bases, and uses Bazel's `contents/gc_lock` for extracted
@@ -242,6 +242,19 @@ order varies across runs so one protected prefix does not monopolize cleanup.
 An in-progress tree operation can finish after the budget; locks are released
 before a later round retries the remainder.
 Run `canaryd clean` to apply these checks manually.
+
+View or change the retention with:
+
+```sh
+canaryd config build-retention       # show the effective retention (default: 24h)
+canaryd config build-retention 48h   # save a 48-hour retention
+canaryd config build-retention 24h   # use the default duration again
+```
+
+The setting accepts whole hours from `1h` to `87600h` and is saved per user in
+`~/Library/Application Support/canaryd/build-cleanup-retention`. Both scheduled
+and manual cleanup read it at the start of each round; no restart is required.
+An invalid or unreadable configuration stops that round with an error.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -398,6 +411,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
+| `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd start` | Start background monitoring, including after login |
 | `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
@@ -430,7 +444,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
 | Idle Codex screen control | 30 minutes of user inactivity and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
-| Stale build output | Complete tree inactive for seven days and related tools idle | Remove a validated DerivedData or Cargo target directory |
+| Stale build output | Complete tree inactive for the configured retention (default 24h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible real-history probe | Restart quietly; notify only when recovery is blocked |
 | System pressure | Three consecutive full checks | Send one system-degraded notification |
@@ -461,13 +475,14 @@ The shared safety rules are:
 - Playwright Chrome cleanup revalidates an exact PID, sends only `SIGTERM`, and
   never stores the command line used for classification.
 - Xcode/Cargo cleanup pauses while related tools are active and removes only
-  validated, reproducible directories whose complete trees are at least seven
-  days old, including Cargo targets in Codex workspace backups and directly
-  under `/private/tmp`. Targets containing running executables are retained.
+  validated, reproducible directories whose complete trees have reached the
+  configured retention (default 24h), including Cargo targets in Codex workspace
+  backups and directly under `/private/tmp`. Targets containing running
+  executables are retained.
 - Bazel output-base cleanup requires a missing local workspace, no active server, and an
   exclusive native lock on that output base. Starting clients or unavailable
   process inspection block deletion.
-- Shared Bazel repository entries require seven days without modification,
+- Shared Bazel repository entries require the configured retention without modification,
   no active Bazel client or server, and all known output-base locks. Extracted
   repositories additionally use the native GC lock; install caches remain.
 - Workspace backup containers, archives, unmerged changes, development data,

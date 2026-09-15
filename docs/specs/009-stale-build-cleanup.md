@@ -21,6 +21,8 @@ archives, developer credentials, Simulator data, or active build artifacts.
     `~/Library/Caches/bazel/_bazel_*/cache/repos/v1`.
   - A daily launchd calendar schedule at 04:00 local time.
   - A manual `canaryd clean` command.
+  - A per-user retention setting, defaulting to 24 hours, shared by scheduled
+    and manual cleanup.
   - Local event history with counts, reclaimed bytes, and bounded skip reasons.
 - Out of scope:
   - Xcode Archives, DeviceSupport, SDKs, UserData, signing identities, and
@@ -31,7 +33,7 @@ archives, developer credentials, Simulator data, or active build artifacts.
     arbitrary projects nested under `/private/tmp`.
   - Bazel install caches, custom output
     roots, and workspaces outside the home directory or `/private/tmp`.
-  - Configurable retention periods or arbitrary cleanup paths.
+  - Arbitrary cleanup paths.
 
 ## Discovery
 
@@ -60,8 +62,8 @@ archives, developer credentials, Simulator data, or active build artifacts.
   not entered; a stalled container mount must not block local backup cleanup.
 - Backup discovery removes only validated Cargo build directories. Backup
   containers, archives, unmerged changes, development data, test evidence, and
-  sibling source files are not deletion candidates. Backups use the same full
-  seven-day tree retention and active Rust process checks as live projects.
+  sibling source files are not deletion candidates. Backups use the same
+  configured full-tree retention and active Rust process checks as live projects.
 - Revalidate backup path ancestry, markers, tree age, and processes immediately
   before removal. A symlink at any component below the runtime home blocks
   backup discovery and deletion. Remove artifacts incrementally without
@@ -77,10 +79,22 @@ archives, developer credentials, Simulator data, or active build artifacts.
 
 ## Retention and Safety
 
-1. Retain an Xcode/Cargo candidate when the directory or any descendant was modified less
-   than seven days ago.
-2. Delete an Xcode/Cargo candidate only when every entry in its tree is at least seven days
-   old.
+The default retention is 24 hours. `canaryd config build-retention` shows the
+effective value; `canaryd config build-retention 48h` saves a new duration.
+Values are positive whole hours from `1h` to `87600h` (ten years), stored as
+duration text in `~/Library/Application Support/canaryd/build-cleanup-retention`.
+The file is read with a 64-byte limit and replaced atomically when settings
+change. A missing file uses the default; malformed, oversized or unreadable
+configuration stops cleanup before process inspection or candidate deletion.
+Read the setting once per round under the cleanup lock and freeze that round's
+cutoff. A setting changed during cleanup applies to the next round, without
+changing the 04:00 schedule or requiring a restart. Configuration commands do
+not start monitoring, install notification helpers or run cleanup.
+
+1. Retain an Xcode/Cargo candidate when the directory or any descendant was modified
+   within the configured retention period.
+2. Delete an Xcode/Cargo candidate only when every entry in its tree has reached
+   the configured retention period; the exact cutoff is eligible.
 3. Skip all Xcode candidates while a current-user `Xcode`, `Simulator`,
    `xcodebuild`, or `xctest` process is active.
 4. Skip all Rust candidates while a current-user `cargo` or `rustc` process is
@@ -114,9 +128,9 @@ archives, developer credentials, Simulator data, or active build artifacts.
 13. The native lock protects against concurrent Bazel clients using the same
     lock file. Workspace recreation and filesystem changes by unrelated programs
     remain best-effort observations, not an atomic filesystem transaction.
-14. Shared Bazel download and repository hash directories require seven days
-    without modification anywhere in their tree. Cache hits update the download
-    `file` or extracted repository `.recorded_inputs` mtime; parent directory
+14. Shared Bazel download and repository hash directories require the same
+    configured retention without modification anywhere in their tree. Cache hits
+    update the download `file` or extracted repository `.recorded_inputs` mtime; parent directory
     age alone never establishes eligibility.
 15. Any Bazel client or resident server blocks shared repository cleanup.
     Acquire all known output-base locks, including bases whose workspaces still
@@ -168,7 +182,7 @@ archives, developer credentials, Simulator data, or active build artifacts.
 
 Given:
 - A DerivedData child and a validated Cargo target have no modification in the
-  last seven days.
+  last 24 hours, with no custom retention configured.
 - No protected build process is active.
 
 When:
@@ -259,7 +273,7 @@ while symlink targets and modes of hard-linked files outside the cache stay inta
 
 Given:
 - A Codex workspace backup contains a validated Cargo target untouched for
-  seven days alongside unmerged changes, an archive, and recent build output.
+  the configured retention alongside unmerged changes, an archive, and recent build output.
 - No protected Rust process is active.
 
 When:
@@ -303,6 +317,23 @@ the budget never permits reuse of a stale idle-process decision.
 Acceptance: `Canaryd.BuildCleanupTest`, `Canaryd.ArtifactProcessesTest`,
 `Canaryd.ArtifactTreeTest`, `Canaryd.BazelRepositoryCacheTest`, and the real
 CLI/history integration in `Canaryd.RuntimePathsTest`.
+
+### BDD-11 Configure retention with a 24-hour default
+
+With no saved setting, Xcode, temporary Cargo and shared Bazel trees at exactly
+24 hours are eligible; a descendant one second newer keeps its whole candidate.
+After saving `48h`, the same 36-hour-old candidates remain across invocations.
+A change to `24h` during a round takes effect only on the next round. Reading
+and changing settings preserves the existing monitoring lifecycle.
+
+Invalid command values preserve the saved setting. Invalid persisted values
+stop cleanup before process scanning or artifact deletion. Configuration I/O
+uses the same runtime home as cleanup, including isolated test homes.
+
+Acceptance: retention boundary and saved-cutoff scenarios in
+`Canaryd.BuildCleanupTest`; persistence and validation in
+`Canaryd.BuildCleanupConfigTest`; CLI setting and lifecycle checks in
+`Canaryd.BuildCleanupConfigCLITest`.
 
 ## Shared Cache Protocol References
 

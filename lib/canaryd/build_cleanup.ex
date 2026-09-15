@@ -13,12 +13,12 @@ defmodule Canaryd.BuildCleanup do
     ArtifactTree,
     BazelCache,
     BazelRepositoryCache,
+    BuildCleanupConfig,
     Duration,
     FileLock,
     Paths
   }
 
-  @retention Duration.days(7)
   @cargo_signature "Signature: 8a477f597d28d172789f06886806bc55"
   @cargo_marker "cache directory tag created by cargo"
   @marker_limit 4096
@@ -50,7 +50,7 @@ defmodule Canaryd.BuildCleanup do
                   ])
 
   @doc false
-  def retention, do: @retention
+  def retention, do: BuildCleanupConfig.default_retention()
 
   @doc "Run one exclusive build cleanup round."
   def run(options \\ []) do
@@ -61,7 +61,15 @@ defmodule Canaryd.BuildCleanup do
 
     File.mkdir_p!(Path.dirname(lock_path))
 
-    FileLock.with_lock(lock_path, fn -> {:ok, cleanup(home, options)} end, create: true)
+    FileLock.with_lock(
+      lock_path,
+      fn ->
+        with {:ok, retention} <- BuildCleanupConfig.read(home) do
+          {:ok, cleanup(home, retention, options)}
+        end
+      end,
+      create: true
+    )
   end
 
   @doc false
@@ -98,7 +106,7 @@ defmodule Canaryd.BuildCleanup do
     |> MapSet.new()
   end
 
-  defp cleanup(home, options) do
+  defp cleanup(home, retention, options) do
     now = Keyword.get(options, :now, DateTime.utc_now())
     process_scanner = Keyword.get(options, :process_scanner, &active_process_names/0)
     rust_roots = Keyword.get_lazy(options, :rust_roots, fn -> default_rust_roots(home) end)
@@ -123,7 +131,7 @@ defmodule Canaryd.BuildCleanup do
       {:ok, process_names} ->
         cutoff =
           now
-          |> Duration.add(-@retention)
+          |> Duration.add(-retention)
           |> DateTime.to_unix(:second)
 
         result
