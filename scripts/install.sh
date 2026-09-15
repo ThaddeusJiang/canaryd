@@ -69,7 +69,10 @@ if command -v xattr >/dev/null 2>&1; then
 fi
 
 mkdir -p "$install_dir"
-install -m 755 "$executable_path" "$install_dir/canaryd"
+
+if [ ! -x "$install_dir/canaryd" ] || ! cmp -s "$executable_path" "$install_dir/canaryd"; then
+  install -m 755 "$executable_path" "$install_dir/canaryd"
+fi
 
 profile_path=""
 

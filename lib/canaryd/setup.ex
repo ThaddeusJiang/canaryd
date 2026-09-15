@@ -38,69 +38,87 @@ defmodule Canaryd.Setup do
     ]
   end
 
-  def install do
+  def install(options \\ []) do
     agents = configured_agents()
+    runner = Keyword.get(options, :runner, &System.cmd/3)
 
-    with :ok <- NotificationHelper.ensure_installed(),
-         :ok <- remove_obsolete_agents() do
-      install_agents(agents)
+    ensure_helper =
+      Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
+
+    with :ok <- ensure_helper.(),
+         :ok <- remove_obsolete_agents(runner) do
+      install_agents(agents, runner)
     end
   end
 
-  defp install_agents(agents) do
+  defp install_agents(agents, runner) do
     File.mkdir_p!(Path.dirname(plist_path(@label)))
     File.mkdir_p!(log_dir())
 
-    Enum.each(agents, fn agent ->
-      File.write!(plist_path(agent.label), agent_plist(agent))
+    Enum.reduce_while(agents, :ok, fn agent, :ok ->
+      case install_agent(agent, runner) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
     end)
+  end
 
-    bootstrap(agents)
+  defp install_agent(agent, runner) do
+    path = plist_path(agent.label)
+    plist = agent_plist(agent)
+    loaded = loaded?(agent.label, runner)
+
+    if File.read(path) == {:ok, plist} do
+      if loaded, do: :ok, else: bootstrap(agent, runner)
+    else
+      with :ok <- if(loaded, do: bootout(agent.label, runner), else: :ok),
+           :ok <- File.write(path, plist) do
+        bootstrap(agent, runner)
+      end
+    end
   end
 
   def uninstall do
     configured_agents()
     |> Enum.map(& &1.label)
     |> Kernel.++(@obsolete_agent_labels)
-    |> remove_agents()
+    |> remove_agents(&System.cmd/3)
 
     NotificationHelper.remove()
     :ok
   end
 
-  defp remove_obsolete_agents do
-    remove_agents(@obsolete_agent_labels)
+  defp remove_obsolete_agents(runner) do
+    remove_agents(@obsolete_agent_labels, runner)
   end
 
-  defp remove_agents(labels) do
+  defp remove_agents(labels, runner) do
     Enum.each(labels, fn label ->
-      if loaded?(label), do: bootout(label)
+      if loaded?(label, runner), do: bootout(label, runner)
       File.rm(plist_path(label))
     end)
 
     :ok
   end
 
-  defp bootstrap(agents) do
-    Enum.each(agents, &bootout(&1.label))
+  defp bootstrap(agent, runner) do
+    args = ["bootstrap", "gui/#{uid()}", plist_path(agent.label)]
 
-    Enum.reduce_while(agents, :ok, fn agent, :ok ->
-      args = ["bootstrap", "gui/#{uid()}", plist_path(agent.label)]
-
-      case System.cmd("launchctl", args, stderr_to_stdout: true) do
-        {_, 0} -> {:cont, :ok}
-        {error, _status} -> {:halt, {:error, error}}
-      end
-    end)
+    case runner.("launchctl", args, stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {error, _status} -> {:error, error}
+    end
   end
 
-  defp bootout(label) do
-    System.cmd("launchctl", ["bootout", "gui/#{uid()}/#{label}"], stderr_to_stdout: true)
-    :ok
+  defp bootout(label, runner) do
+    case runner.("launchctl", ["bootout", "gui/#{uid()}/#{label}"], stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {error, _status} -> {:error, error}
+    end
   end
 
-  defp loaded?(label) do
-    case System.cmd("launchctl", ["list", label], stderr_to_stdout: true) do
+  defp loaded?(label, runner) do
+    case runner.("launchctl", ["list", label], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
