@@ -25,6 +25,40 @@ defmodule Canaryd.InstallScriptTest do
     refute File.exists?(Path.join(fixture.install_dir, "canaryd"))
   end
 
+  test "reinstalling identical bytes preserves the executable and its modification time" do
+    fixture = release_fixture(valid_checksum?: true)
+    assert {_, 0} = run_installer(fixture)
+    executable = Path.join(fixture.install_dir, "canaryd")
+    File.touch!(executable, 1_700_000_000)
+    before = File.stat!(executable)
+
+    assert {_, 0} = run_installer(fixture)
+    after_install = File.stat!(executable)
+    assert after_install.mtime == before.mtime
+    assert after_install.inode == before.inode
+  end
+
+  test "replaces different bytes even when the version string is unchanged" do
+    fixture = release_fixture(valid_checksum?: true)
+    File.mkdir_p!(fixture.install_dir)
+    executable = Path.join(fixture.install_dir, "canaryd")
+    File.write!(executable, "#!/bin/sh\n# old build\necho 'canaryd 0.2.0'\n")
+    File.chmod!(executable, 0o755)
+
+    assert {_, 0} = run_installer(fixture)
+    refute File.read!(executable) =~ "old build"
+  end
+
+  test "repairs missing execute permission on an otherwise identical installation" do
+    fixture = release_fixture(valid_checksum?: true)
+    assert {_, 0} = run_installer(fixture)
+    executable = Path.join(fixture.install_dir, "canaryd")
+    File.chmod!(executable, 0o644)
+
+    assert {_, 0} = run_installer(fixture)
+    assert Bitwise.band(File.stat!(executable).mode, 0o111) != 0
+  end
+
   test "adds the install directory to the current shell profile once" do
     fixture = release_fixture(valid_checksum?: true)
     profile_path = Path.join(Path.dirname(fixture.install_dir), ".zshrc")

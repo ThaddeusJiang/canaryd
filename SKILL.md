@@ -79,6 +79,7 @@ curl -fsSL \
 
 The installer selects the architecture, verifies the release SHA-256 checksum,
 and installs `~/.local/bin/canaryd`. Use the same command for upgrades.
+An identical executable is preserved instead of being installed again.
 
 If `~/.local/bin` is not in `PATH`, add this line once to the profile for the
 user's current interactive shell:
@@ -91,7 +92,8 @@ Do not change another shell profile.
 
 ## Register and verify Canaryd
 
-Rewrite and load the launchd agents with the installed executable:
+Enable the launchd agents with the installed executable. Repeated starts
+preserve unchanged, loaded agents and refresh only missing or changed tasks:
 
 ```sh
 "$HOME/.local/bin/canaryd" --version

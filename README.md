@@ -291,6 +291,7 @@ curl -fsSL https://github.com/ThaddeusJiang/canaryd/releases/latest/download/ins
 The installer selects the Mac architecture, verifies SHA-256, and installs
 `canaryd` in `~/.local/bin`. It adds that directory to the current shell profile
 when necessary.
+Reinstalling the same executable leaves the installed file unchanged.
 
 Restart the shell, or run the `source` command printed by the installer, then:
 
@@ -310,6 +311,10 @@ Use `canaryd stop` to stop both tasks until you run `canaryd start` again.
 Status, history, help, and manual checks do not start background tasks. You do
 not need to manage plist files. Run `canaryd start` after upgrading to refresh
 the background tasks and notification helper.
+Repeating `canaryd start` keeps unchanged, loaded tasks in place. Only missing
+or changed tasks are loaded or refreshed. This avoids unnecessary macOS
+background activity notifications; macOS may still notify after an actual
+executable or task configuration update.
 
 <details>
 <summary><strong>Manual archive, source, and Hex installation</strong></summary>

@@ -54,6 +54,13 @@ Do not require the user to install Erlang or Elixir.
 18. Do not include the release build user's home directory in runtime paths.
 19. Publish the GitHub Release and Hex package from the same version tag.
 20. Read the Hex publish key only from the `HEX_API_KEY` GitHub Actions secret.
+21. Preserve the installed executable when its bytes match the verified download
+    and it is executable. Compare bytes, not version strings, so different builds
+    of the same version can still be installed.
+22. Repeated `canaryd start` calls preserve unchanged, loaded launchd jobs and
+    their plist files. Load missing jobs and refresh only changed configurations.
+23. If unloading a changed job fails, report the failure and preserve its old
+    plist. Retry a failed load without reloading successful sibling jobs.
 
 ## BDD Scenarios
 
@@ -110,6 +117,9 @@ Test Plan:
 - Lowest useful level: shell integration test with local release fixtures.
 - First failing test: install a verified local archive into an isolated directory.
 - Follow-up test: reject an archive with an invalid checksum.
+- Follow-up tests: preserve inode and modification time on an identical
+  reinstall; replace changed bytes with the same version string; repair missing
+  execute permission.
 
 ### BDD-04 Publish a release candidate
 
@@ -164,6 +174,30 @@ Test Plan:
 - First failing test: require one Hex publish step with a step-scoped secret.
 - Follow-up test: inspect the public Hex package after the workflow completes.
 
+### BDD-07 Repeat background setup without re-registering unchanged jobs
+
+Given:
+- Both current background jobs are loaded with their expected configuration.
+
+When:
+- The user runs `canaryd start` again.
+
+Then:
+- No current job is unloaded or registered again.
+- Existing plist contents, inode, and modification time remain unchanged.
+- A missing job is loaded without rewriting its unchanged plist.
+- A changed job is unloaded and reloaded without disturbing its sibling.
+- The obsolete thermal job is removed independently.
+- Failed unloads and loads are reported and can be retried.
+
+Test Plan:
+- Lowest useful level: setup integration tests with real temporary files and an
+  injected launchctl runner, plus a local macOS check of repeated setup.
+- First failing tests: repeat setup and reinstall identical release bytes;
+  observe unwanted launchctl calls and changed file modification times.
+- Actual executable or configuration updates may still trigger macOS background
+  activity notifications. Suppressing system notifications is outside this change.
+
 ## Security and Operations
 
 - Every GitHub Action reference uses a full commit SHA.
@@ -183,3 +217,4 @@ Test Plan:
 | BDD-04 | passed | `Canaryd.ReleaseConfigTest` | The release workflow adds the GitHub prerelease flag for `rc.N` tags. |
 | BDD-05 | passed | `Canaryd.RuntimePathsTest`; ARM64 executable run with an isolated `HOME`; extracted payload inspection | Reported by the `v0.3.0-rc.1` user test. |
 | BDD-06 | passed | [Release workflow](https://github.com/ThaddeusJiang/canaryd/actions/runs/30779692926), [Hex package](https://hex.pm/packages/canaryd/0.3.0), and [HexDocs](https://hexdocs.pm/canaryd/0.3.0/) | The workflow published `0.3.0` to GitHub and Hex. |
+| BDD-07 | passed | `Canaryd.SetupLifecycleTest`; two consecutive starts using the new source on macOS 26.6.2 | Both live BTM records and plist, executable, and notification-helper metadata stayed unchanged. Real updates can still trigger system notifications. |
