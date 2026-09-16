@@ -24,6 +24,18 @@ defmodule Canaryd.BazelCache do
   end
 
   def valid_candidate?(path, home) do
+    with {:ok, workspace} <- output_base_workspace(path, home) do
+      missing_workspace?(workspace, home)
+    else
+      _ -> false
+    end
+  end
+
+  # Shared repository caches are also used by bases whose workspaces still
+  # exist. Expose identity separately without widening orphan eligibility.
+  def valid_output_base?(path, home), do: match?({:ok, _}, output_base_workspace(path, home))
+
+  defp output_base_workspace(path, home) do
     root = Path.join(home, "Library/Caches/bazel")
     user_root = Path.dirname(path)
 
@@ -35,7 +47,7 @@ defmodule Canaryd.BazelCache do
          {:ok, workspace} <- read_marker(Path.join(path, "DO_NOT_BUILD_HERE")),
          true <- Path.type(workspace) == :absolute and Path.expand(workspace) == workspace,
          true <- Path.basename(path) == workspace_hash(workspace) do
-      missing_workspace?(workspace, home)
+      {:ok, workspace}
     else
       _ -> false
     end
