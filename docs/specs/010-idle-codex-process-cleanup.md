@@ -76,5 +76,9 @@ After terminating only the newly spawned childless REPL, two subsequent calls
 through the same session returned `Transport closed`. Reconnection failed, so the
 previous proposed automatic empty-host termination was withdrawn.
 
+On 2026-09-19, the same isolated fixtures reproduced both failures with
+`codex-cli 0.155.0-alpha.9`: both subsequent calls returned `Transport closed`
+for each transport. The newer client does not change the retention policy.
+
 Reclamation requires a future reliable owner-release signal or verified transparent
 client reconnection. A newer client version must be retested before changing policy.

@@ -17,7 +17,7 @@ defmodule Canaryd.CLITest do
     start = fn -> flunk("version must not start background monitoring") end
 
     for command <- ["--version", "version"] do
-      assert capture_io(fn -> CLI.main([command], start: start) end) == "canaryd 0.4.6\n"
+      assert capture_io(fn -> CLI.main([command], start: start) end) == "canaryd 0.4.7\n"
     end
   end
 
