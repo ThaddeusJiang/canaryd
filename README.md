@@ -106,16 +106,14 @@ processes at once. A broad name-based cleanup would be easy to write, but it
 could terminate helpers that still belong to active work.
 
 Canaryd observes cumulative CPU time and process identity for 30 minutes.
-Childless REPL and CUA hosts can qualify while you keep using the Mac; helpers
-with execution kernels or other child processes stay protected. Connected
-legacy MCP adapters still require whole-Mac inactivity. Before sending
-`SIGTERM`, Canaryd checks the exact PID, start time, parent, CPU counter, and
-children again. It never uses `pkill` or `SIGKILL`.
+Childless REPL and CUA hosts can be observed while you keep using the Mac.
+Hosts with execution kernels or other children remain protected; other adapters
+have unknown session activity. Whole-Mac inactivity does not prove a task ended.
 
-Run `canaryd reclaim --dry-run` to see candidates and why others are kept.
-`canaryd reclaim` uses the same confirmation window as scheduled checks; it
-cannot force termination. Reclaimed tool connections may require reconnecting
-or reopening their task. Process cleanup is independent of build retention.
+Automatic Codex termination is disabled. A controlled test of the installed
+app server showed that killing an empty REPL broke later tool calls in the same
+session (`Transport closed`). Run `canaryd reclaim --dry-run` to inspect hosts;
+`canaryd reclaim` records observations, but neither command kills them.
 
 The recording below demonstrates the earlier whole-Mac-idle policy.
 
@@ -188,14 +186,16 @@ Developer tools often use several processes, so one quiet application can hold
 far more memory than its main PID suggests. During one investigation, a
 Nowledge Mem background server stayed around 1 GB RSS and frequently fell to
 0% CPU. Browser-style tools such as Dia and ChatGPT showed the same multi-process
-shape. These are typical candidates after the user walks away, not while they
-are active workspaces.
+shape. Low CPU use alone does not establish that those applications can be closed.
 
-Canaryd aggregates an application's process tree. After 30 minutes of user
-inactivity, a non-active third-party app becomes eligible only when it stays at
-or above 1 GB RSS and at or below 1% CPU for three consecutive checks. Canaryd
-then requests a graceful close. It protects the active app, Apple apps, system
-processes, and helper bundles, and never escalates this recovery to `SIGKILL`.
+Canaryd aggregates an application's process tree. A non-active third-party app
+using at least 1 GB RSS and at most 1% CPU for three spaced checks generates an
+alert, with a one-hour cooldown. Checks run during normal Mac use. Canaryd never
+closes an ordinary application merely because it holds memory: low CPU and user
+inactivity do not prove that its work can be discarded.
+
+The recording below shows the previous automatic-close policy, which has been
+replaced by alerts.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -286,7 +286,7 @@ An invalid or unreadable configuration stops that round with an error.
 ## Status at a glance
 
 Run `canaryd status` to see current temperatures, CleanClip health, recent
-recovery events, pending app hangs, idle high-memory apps, idle Simulators,
+recovery events, pending app hangs, high-memory apps, idle Simulators,
 idle Codex screen-control helpers, and leftover Playwright Chrome for Testing.
 
 ![Example Canaryd status output](./docs/assets/canaryd-status.svg)
@@ -351,7 +351,7 @@ canaryd status
 
 | Agent | Schedule | Work |
 | --- | ---: | --- |
-| Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
+| Full health check | Every 5 minutes while awake; one catch-up after sleep | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
 | Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup and temporary targets, orphaned Bazel output bases, and stale shared repository entries |
 
 Use `canaryd stop` to stop both tasks until you run `canaryd start` again.
@@ -434,7 +434,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
 | `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
-| `canaryd reclaim [--dry-run]` | Reclaim confirmed quiet Codex helpers, or preview PIDs and protection reasons without acting |
+| `canaryd reclaim [--dry-run]` | Inspect quiet Codex helpers; dry run preserves observations; no Codex termination |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd start` | Start background monitoring, including after login |
 | `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
@@ -463,13 +463,13 @@ Canaryd confirms abnormal behavior before changing another process.
 | --- | --- | --- |
 | CPU or GPU heat | Three temperature samples; two rounds for the same actionable leader | Warn first, then offer Close or Restart |
 | GUI app hang | macOS Not Responding state in two consecutive rounds | Restart a supported third-party app in the background |
-| Idle high memory | 30 minutes of user inactivity and three low-CPU, 1 GB+ rounds | Request a graceful app close |
+| High memory | Three spaced low-CPU, 1 GB+ rounds | Alert only, at most once per hour |
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
-| Idle Codex tool hosts | 30 observed minutes of unchanged cumulative CPU time and no children; connected legacy adapters also require user inactivity | Send `SIGTERM` to the revalidated exact PID |
+| Quiet Codex tool hosts | 30-minute CPU/identity observation window without children | Report and retain; existing sessions cannot safely reconnect |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Stale build output | Complete tree inactive for the configured retention (default 24h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
-| CleanClip function missing | Reversible real-history probe | Restart quietly; notify only when recovery is blocked |
+| CleanClip function missing | Reversible probe every 30 minutes when healthy; retry failures next check | Restart quietly; notify only when recovery is blocked |
 | System pressure | Three consecutive full checks | Send one system-degraded notification |
 
 The shared safety rules are:
@@ -479,7 +479,7 @@ The shared safety rules are:
 - Apple apps, system daemons, active apps, and unsafe helper processes are
   protected from general automatic actions.
 - A newer user clipboard write always wins over CleanClip probe restoration.
-- Idle-memory recovery never uses `SIGKILL`.
+- High-memory applications receive alerts only; Canaryd does not terminate them.
 - Simulator recovery never runs `erase`, `delete`, `reset`, or `shutdown all`.
 - Whole-Mac keyboard and pointer activity does not reset Simulator inactivity.
 - Active current-user `xcodebuild` and `xctest` processes block Simulator
@@ -492,7 +492,7 @@ The shared safety rules are:
   `cua-driver serve`, unrelated Node.js processes, and the Codex app server.
 - Codex helper cleanup preserves processes with children, including initialized
   REPL kernels. CPU activity, identity changes, and scan gaps reset confirmation.
-  It revalidates the exact PID, sends only `SIGTERM`, and never stores command lines.
+  It never terminates these hosts or stores command lines.
 - Playwright Chrome cleanup matches only the main Chrome for Testing binary
   under `Library/Caches/ms-playwright`. It protects Google Chrome, Dia,
   Clicknow, helpers, crashpad, the frontmost app, and active Playwright runners.
@@ -593,3 +593,15 @@ media under `hyperframes-src/`.
 ## License
 
 [MIT](./LICENSE)
+
+### Sleep and wake behavior
+
+The health-check job uses launchd calendar slots at minutes 0, 5, ..., 55 and
+runs when loaded. Checks missed during sleep coalesce into one check on wake;
+they are not replayed as a backlog. Canaryd does not prevent or schedule a wake
+from system sleep. Display sleep alone does not stop checks. The daily 04:00
+build cleanup retains its existing calendar schedule.
+
+See Apple's [Scheduling Timed Jobs](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html)
+for launchd sleep semantics. The separately proposed configurable schedules in
+PR #37 must preserve calendar-based catch-up when integrated.

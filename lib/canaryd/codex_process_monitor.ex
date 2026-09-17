@@ -1,8 +1,8 @@
 defmodule Canaryd.CodexProcessMonitor do
   @moduledoc """
-  Confirms quiet, childless Codex helpers over a real observation window.
+  Observes quiet, childless Codex helpers without interrupting their connections.
 
-  Empty REPL and CUA hosts do not require whole-Mac inactivity.
+  Empty REPL and CUA hosts can be observed during normal Mac use.
   Initialized execution kernels are protected by the process scanner.
   """
 
@@ -25,7 +25,7 @@ defmodule Canaryd.CodexProcessMonitor do
 
       if observation.count >= @required_observations and
            now - observation.quiet_since >= @minimum_idle do
-        {next_state, [{:terminate, process} | actions]}
+        {next_state, [{:quiet, process} | actions]}
       else
         next_state = put_in(next_state, [:observations, process.id], observation)
         {next_state, [{:detected, process, observation.count} | actions]}
@@ -35,7 +35,7 @@ defmodule Canaryd.CodexProcessMonitor do
   end
 
   @doc "Returns why a process must be kept, or nil when it may be observed."
-  def protection_reason(process, idle_duration) do
+  def protection_reason(process, _idle_duration) do
     cond do
       not is_integer(Map.get(process, :cpu_time)) ->
         :activity_unavailable
@@ -46,11 +46,8 @@ defmodule Canaryd.CodexProcessMonitor do
       process.kind in [:node_repl, :computer_use_launcher] ->
         nil
 
-      idle_duration < @minimum_idle ->
-        :user_active
-
       true ->
-        nil
+        :session_activity_unknown
     end
   end
 

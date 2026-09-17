@@ -24,15 +24,14 @@ defmodule Canaryd.MemoryMonitorTest do
   end
 
   test "exposes conservative thresholds" do
-    assert MemoryMonitor.minimum_idle() == 1_800_000
     assert MemoryMonitor.memory_threshold_mb() == 1_024.0
     assert MemoryMonitor.cpu_threshold() == 1.0
     assert MemoryMonitor.required_observations() == 3
-    assert MemoryMonitor.close_cooldown() == 3_600_000
+    assert MemoryMonitor.alert_cooldown() == 3_600_000
   end
 
-  test "closes after three consecutive idle high-memory observations" do
-    idle = Duration.minutes(30)
+  test "alerts after three high-memory observations while the user is active" do
+    idle = 0
 
     {state, actions} =
       MemoryMonitor.evaluate(MemoryMonitor.default_state(), [app()], idle, @t0)
@@ -43,21 +42,15 @@ defmodule Canaryd.MemoryMonitorTest do
     assert actions == [{:detected, app(), 2}]
 
     {state, actions} = MemoryMonitor.evaluate(state, [app()], idle, later(10))
-    assert actions == [{:close, app()}]
+    assert actions == [{:alert, app()}]
     assert MemoryMonitor.pending_apps(state) == []
   end
 
-  test "active user, lower memory, and CPU activity reset confirmation" do
-    idle = Duration.minutes(30)
+  test "lower memory and CPU activity reset confirmation" do
+    idle = 0
 
     {state, _actions} =
       MemoryMonitor.evaluate(MemoryMonitor.default_state(), [app()], idle, @t0)
-
-    {state, []} =
-      MemoryMonitor.evaluate(state, [app()], Duration.minutes(29), later(5))
-
-    {state, actions} = MemoryMonitor.evaluate(state, [app()], idle, later(10))
-    assert actions == [{:detected, app(), 1}]
 
     {state, []} =
       MemoryMonitor.evaluate(state, [app(%{rss_mb: 1_023.9})], idle, later(15))
@@ -73,7 +66,7 @@ defmodule Canaryd.MemoryMonitorTest do
   end
 
   test "a replacement PID starts a new confirmation sequence" do
-    idle = Duration.minutes(30)
+    idle = 0
 
     {state, _actions} =
       MemoryMonitor.evaluate(MemoryMonitor.default_state(), [app()], idle, @t0)
@@ -84,8 +77,8 @@ defmodule Canaryd.MemoryMonitorTest do
     assert actions == [{:detected, app(%{pid: 84}), 1}]
   end
 
-  test "never closes a protected app" do
-    idle = Duration.minutes(30)
+  test "never alerts for a protected app" do
+    idle = 0
     protected = app(%{actionable: false})
 
     {_state, actions} =
@@ -94,18 +87,30 @@ defmodule Canaryd.MemoryMonitorTest do
     assert actions == []
   end
 
-  test "does not close the same app again during cooldown" do
-    idle = Duration.minutes(30)
+  test "does not alert for the same app again during cooldown" do
+    idle = 0
 
     {state, _actions} =
       MemoryMonitor.evaluate(MemoryMonitor.default_state(), [app()], idle, @t0)
 
     {state, _actions} = MemoryMonitor.evaluate(state, [app()], idle, later(5))
-    {state, [{:close, _app}]} = MemoryMonitor.evaluate(state, [app()], idle, later(10))
+    {state, [{:alert, _app}]} = MemoryMonitor.evaluate(state, [app()], idle, later(10))
     {state, _actions} = MemoryMonitor.evaluate(state, [app()], idle, later(15))
     {state, _actions} = MemoryMonitor.evaluate(state, [app()], idle, later(20))
     {_state, actions} = MemoryMonitor.evaluate(state, [app()], idle, later(25))
 
     assert actions == []
+  end
+
+  test "rapid calls and long gaps do not establish sustained memory use" do
+    {state, _} = MemoryMonitor.evaluate(%{}, [app()], 0, @t0)
+    {state, [{:detected, _, 1}]} = MemoryMonitor.evaluate(state, [app()], 0, @t0)
+    {state, [{:detected, _, 1}]} = MemoryMonitor.evaluate(state, [app()], 0, later(11))
+    {_, [{:detected, _, 1}]} = MemoryMonitor.evaluate(state, [app()], 0, @t0)
+  end
+
+  test "legacy close state does not trigger termination or bypass new confirmation" do
+    legacy = %{observations: %{app().id => %{app: app(), count: 99}}, closes: %{app().id => @t0}}
+    {_, [{:detected, _, 1}]} = MemoryMonitor.evaluate(legacy, [app()], 0, @t0)
   end
 end

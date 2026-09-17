@@ -8,7 +8,7 @@ defmodule Canaryd.Setup do
   @build_cleanup_label "com.thaddeusjiang.canaryd.build-cleanup"
   @obsolete_agent_labels ["com.thaddeusjiang.canaryd.thermal"]
 
-  alias Canaryd.{Duration, NotificationHelper, Paths}
+  alias Canaryd.{NotificationHelper, Paths}
 
   def label, do: @label
 
@@ -24,7 +24,7 @@ defmodule Canaryd.Setup do
       %{
         label: @label,
         command: "check",
-        interval: Duration.minutes(5),
+        calendar: Enum.map(0..11, &%{minute: &1 * 5}),
         run_at_load: true,
         escript_path: escript_path
       },
@@ -189,11 +189,13 @@ defmodule Canaryd.Setup do
     """
   end
 
-  defp schedule_plist(%{interval: interval}) do
-    """
-    <key>StartInterval</key>
-    <integer>#{Duration.to_external(interval, :second)}</integer>
-    """
+  defp schedule_plist(%{calendar: slots}) when is_list(slots) do
+    entries =
+      Enum.map_join(slots, "\n", fn %{minute: minute} ->
+        "<dict><key>Minute</key><integer>#{minute}</integer></dict>"
+      end)
+
+    "<key>StartCalendarInterval</key>\n<array>#{entries}</array>\n"
   end
 
   defp schedule_plist(%{calendar: %{hour: hour, minute: minute}}) do

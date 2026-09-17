@@ -70,40 +70,6 @@ defmodule Canaryd.CodexProcessesTest do
            ]
   end
 
-  test "terminates only a revalidated exact process and never sends SIGKILL" do
-    target = process(:node_repl, 43, 2072, "Mon Sep 7 20:02:03 2026", "node_repl")
-    scanner = fn -> {:ok, [target]} end
-
-    runner = fn
-      "kill", ["-TERM", "43"] ->
-        send(self(), {:command, "kill", ["-TERM", "43"]})
-        {:ok, ""}
-
-      "kill", ["-0", "43"] ->
-        {:error, :command_failed}
-    end
-
-    assert :ok = CodexProcesses.terminate(target, scanner, runner, fn _duration -> :ok end)
-    assert_received {:command, "kill", ["-TERM", "43"]}
-    refute_received {:command, "kill", ["-KILL", _pid]}
-  end
-
-  test "does not terminate a reused PID or an already stopped process" do
-    target = process(:node_repl, 43, 2072, "Mon Sep 7 20:02:03 2026", "node_repl")
-
-    replacement =
-      process(:node_repl, 43, 9999, "Mon Sep 7 21:02:03 2026", "node_repl")
-
-    runner = fn _bin, _args -> flunk("termination command must not run") end
-    sleeper = fn _duration -> :ok end
-
-    assert {:error, :process_identity_changed} =
-             CodexProcesses.terminate(target, fn -> {:ok, [replacement]} end, runner, sleeper)
-
-    assert :already_stopped =
-             CodexProcesses.terminate(target, fn -> {:ok, []} end, runner, sleeper)
-  end
-
   test "recognizes bundled CUA launchers and protects initialized execution hosts" do
     for app <- ["ChatGPT", "Codex"] do
       root = "/Applications/#{app}.app/Contents/Resources/cua_node"
@@ -157,49 +123,6 @@ defmodule Canaryd.CodexProcessesTest do
 
     rows = Enum.map_join(1..251, "\n", &String.replace_prefix(row, "10 ", "#{&1} "))
     assert {:error, :too_many_candidates} = CodexProcesses.parse_snapshot(rows, 501)
-  end
-
-  test "activity, parent changes, new children and unavailable scans prevent termination" do
-    target = process(:node_repl, 43, 2072, "start", "node_repl")
-    runner = fn _, _ -> flunk("must not signal a changed helper") end
-
-    for changed <- [
-          %{target | cpu_time: 140},
-          %{target | ppid: 1},
-          %{target | protection: :working_children}
-        ] do
-      assert {:error, :process_became_active} =
-               CodexProcesses.terminate(target, fn -> {:ok, [changed]} end, runner, fn _ ->
-                 :ok
-               end)
-    end
-
-    assert {:error, :unavailable} =
-             CodexProcesses.terminate(target, fn -> {:error, :unavailable} end, runner, fn _ ->
-               :ok
-             end)
-  end
-
-  test "termination never escalates and does not report success when inspection fails" do
-    target = process(:node_repl, 43, 2072, "start", "node_repl")
-    scanner = fn -> {:ok, [target]} end
-
-    runner = fn
-      "kill", ["-TERM", "43"] -> {:ok, ""}
-      "kill", ["-0", "43"] -> {:ok, ""}
-      _, _ -> flunk("must never force kill")
-    end
-
-    assert {:error, :process_did_not_stop} =
-             CodexProcesses.terminate(target, scanner, runner, fn _ -> :ok end)
-
-    broken = fn
-      "kill", ["-TERM", "43"] -> {:ok, ""}
-      "kill", ["-0", "43"] -> {:error, :command_timeout}
-    end
-
-    assert {:error, {:stop_check_failed, :command_timeout}} =
-             CodexProcesses.terminate(target, scanner, broken, fn _ -> :ok end)
   end
 
   test "parses long cumulative CPU times and rejects duplicate rows" do

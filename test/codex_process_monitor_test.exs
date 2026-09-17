@@ -20,14 +20,14 @@ defmodule Canaryd.CodexProcessMonitorTest do
   defp evaluate(state, processes, minute, idle \\ 0),
     do: CodexProcessMonitor.evaluate(state, processes, idle, Duration.minutes(minute))
 
-  test "reclaims a quiet empty REPL after 30 minutes even while the user works" do
+  test "reports a quiet empty REPL after 30 minutes even while the user works" do
     state =
       Enum.reduce(0..5, CodexProcessMonitor.default_state(), fn n, state ->
         {state, [{:detected, _, _}]} = evaluate(state, [process()], n * 5)
         state
       end)
 
-    assert {state, [{:terminate, target}]} = evaluate(state, [process()], 30)
+    assert {state, [{:quiet, target}]} = evaluate(state, [process()], 30)
     assert target == process()
     assert CodexProcessMonitor.pending_processes(state) == []
   end
@@ -46,10 +46,10 @@ defmodule Canaryd.CodexProcessMonitorTest do
     assert state.observations == %{}
   end
 
-  test "MCP adapters still require user inactivity, including parent PID 1" do
+  test "MCP adapters have unknown session activity even with an idle Mac or parent PID 1" do
     adapter = process(%{kind: :cua_driver_mcp})
     assert {_, []} = evaluate(%{}, [adapter], 0)
-    assert {_, [{:detected, ^adapter, 1}]} = evaluate(%{}, [adapter], 0, Duration.minutes(30))
+    assert {_, []} = evaluate(%{}, [adapter], 0, Duration.minutes(30))
     orphan = %{adapter | ppid: 1}
     assert {_, []} = evaluate(%{}, [orphan], 0)
   end

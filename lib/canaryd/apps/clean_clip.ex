@@ -21,7 +21,7 @@ defmodule Canaryd.Apps.CleanClip do
   def history_dir, do: Paths.clean_clip_history_dir()
 
   def start do
-    System.cmd("open", ["-a", @app_name], stderr_to_stdout: true)
+    System.cmd("open", ["-g", "-a", @app_name], stderr_to_stdout: true)
     Process.sleep(Duration.seconds(5))
     process_alive?()
   end

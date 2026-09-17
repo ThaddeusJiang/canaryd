@@ -48,15 +48,15 @@ defmodule Canaryd.CheckerCodexTest do
     )
   end
 
-  test "scheduled checks reclaim quiet hosts while the user is active and record results", ctx do
+  test "scheduled checks retain quiet hosts because original sessions cannot reconnect", ctx do
     for minute <- 0..5 do
       Checker.check_idle_codex_processes(ctx.state, ctx.events, 0, options(minute * 5))
     end
 
     result = Checker.check_idle_codex_processes(ctx.state, ctx.events, 0, options(30))
-    assert result.actions == [:terminated]
-    assert_received {:terminated, 43}
-    assert [%{type: :terminated} | _] = Store.list_events(ctx.events, :codex_processes)
+    assert result.actions == [:quiet]
+    refute_received {:terminated, 43}
+    assert [%{type: :quiet_retained} | _] = Store.list_events(ctx.events, :codex_processes)
   end
 
   test "dry run neither signals nor advances persisted observations or events", ctx do
@@ -70,7 +70,7 @@ defmodule Canaryd.CheckerCodexTest do
     result =
       Checker.check_idle_codex_processes(ctx.state, ctx.events, 0, options(30, dry_run: true))
 
-    assert [%{status: :would_terminate}] = result.processes
+    assert [%{status: :quiet}] = result.processes
     refute_received {:terminated, _}
     assert Store.get_value(ctx.state, :idle_codex_processes, %{}) == before_state
     assert Store.list_events(ctx.events, :codex_processes) == before_events
@@ -101,7 +101,7 @@ defmodule Canaryd.CheckerCodexTest do
     refute_received {:terminated, _}
   end
 
-  test "renewed keyboard activity protects MCP adapters at the action boundary", ctx do
+  test "unknown MCP session activity stays protected even while the Mac is idle", ctx do
     adapter = %{target() | kind: :cua_driver_mcp}
     opts = [scanner: fn -> {:ok, [adapter]} end]
 
@@ -122,7 +122,8 @@ defmodule Canaryd.CheckerCodexTest do
         options(30, opts)
       )
 
-    assert result.actions == [:termination_skipped]
+    assert result.actions == []
+    assert [%{reason: :session_activity_unknown}] = result.processes
     refute_received {:terminated, _}
   end
 end

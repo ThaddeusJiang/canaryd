@@ -148,7 +148,7 @@ defmodule Canaryd.CLITest do
             reason: :working_children,
             quiet_duration: 0
           },
-          %{pid: 3, name: "node_repl", status: :would_terminate, reason: nil, quiet_duration: 0}
+          %{pid: 3, name: "node_repl", status: :quiet, reason: nil, quiet_duration: 0}
         ]
       }
     end
@@ -163,7 +163,7 @@ defmodule Canaryd.CLITest do
 
     assert output =~ "observing (10/30 min quiet)"
     assert output =~ "kept: has child processes"
-    assert output =~ "would stop"
+    assert output =~ "kept: quiet, session ownership unknown"
   end
 
   test "reclaim uses the guarded policy and reports lock failures" do

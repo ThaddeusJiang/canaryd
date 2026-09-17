@@ -47,7 +47,7 @@ defmodule Canaryd.SetupLifecycleTest do
 
     assert :ok = Setup.install(options)
     assert take_calls(state) == [{"bootout", label}, {"bootstrap", label}]
-    assert File.read!(plist_path(label)) =~ "<integer>300</integer>"
+    assert File.read!(plist_path(label)) =~ "<key>StartCalendarInterval</key>"
     assert List.last(plist_metadata(touch?: false)) == List.last(before)
   end
 

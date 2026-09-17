@@ -1,6 +1,6 @@
 defmodule Canaryd.CodexProcesses do
   @moduledoc """
-  Finds stale-prone Codex screen-control helpers and terminates an exact process.
+  Finds Codex screen-control helpers without changing their lifecycle.
 
   Classification uses fixed command signatures, but command-line arguments are
   discarded before a process leaves the scanner. The long-lived CUA Driver
@@ -20,8 +20,6 @@ defmodule Canaryd.CodexProcesses do
   @maximum_rows 16_384
   @maximum_output_bytes 4 * 1024 * 1024
   @command_timeout Duration.seconds(5)
-  @termination_attempts 10
-  @termination_poll Duration.milliseconds(100)
 
   @doc "Returns supported screen-control helpers owned by the current user."
   def scan do
@@ -66,40 +64,6 @@ defmodule Canaryd.CodexProcesses do
       end
     end
   end
-
-  @doc "Revalidates a process identity and requests graceful termination."
-  def terminate(process), do: terminate(process, &scan/0, &cmd/2, &Process.sleep/1)
-
-  @doc false
-  def terminate(
-        %{id: id, pid: pid} = process,
-        scanner,
-        runner,
-        sleeper
-      )
-      when is_tuple(id) and is_integer(pid) and pid > 0 and is_function(scanner, 0) and
-             is_function(runner, 2) and is_function(sleeper, 1) do
-    with {:ok, processes} <- scanner.() do
-      case Enum.find(processes, &(&1.pid == pid)) do
-        nil ->
-          :already_stopped
-
-        %{id: ^id} = current ->
-          if Map.fetch(current, :protection) == {:ok, nil} and is_integer(current[:cpu_time]) and
-               Map.take(current, [:ppid, :cpu_time]) ==
-                 Map.take(process, [:ppid, :cpu_time]) do
-            request_termination(pid, runner, sleeper)
-          else
-            {:error, :process_became_active}
-          end
-
-        _replacement ->
-          {:error, :process_identity_changed}
-      end
-    end
-  end
-
-  def terminate(_process, _scanner, _runner, _sleeper), do: {:error, :invalid_process}
 
   defp parse_process_row(row) do
     case String.split(String.trim(row), ~r/\s+/, parts: 10) do
@@ -164,29 +128,6 @@ defmodule Canaryd.CodexProcesses do
 
       true ->
         nil
-    end
-  end
-
-  defp request_termination(pid, runner, sleeper) do
-    case runner.("kill", ["-TERM", Integer.to_string(pid)]) do
-      {:ok, _output} -> wait_for_stop(pid, @termination_attempts, runner, sleeper)
-      {:error, reason} -> {:error, {:termination_failed, reason}}
-    end
-  end
-
-  defp wait_for_stop(_pid, 0, _runner, _sleeper), do: {:error, :process_did_not_stop}
-
-  defp wait_for_stop(pid, attempts, runner, sleeper) do
-    case runner.("kill", ["-0", Integer.to_string(pid)]) do
-      {:ok, _output} ->
-        sleeper.(@termination_poll)
-        wait_for_stop(pid, attempts - 1, runner, sleeper)
-
-      {:error, :command_failed} ->
-        :ok
-
-      {:error, reason} ->
-        {:error, {:stop_check_failed, reason}}
     end
   end
 
