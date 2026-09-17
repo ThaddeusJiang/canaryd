@@ -208,23 +208,62 @@ source may already be committed while reproducible build output continues to
 consume disk space.
 
 At 04:00 local time, Canaryd checks fixed safe roots, validates every candidate,
-and requires Xcode/Cargo directory trees to be untouched for seven days. It
+and requires Xcode/Cargo directory trees to be untouched for 24 hours by default. It
 skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
-and skips Rust cleanup while `cargo` or `rustc` is active. It never follows
-symbolic links or removes source, Archives, Simulator data, or Cargo caches.
+and skips Rust cleanup while `cargo` or `rustc` is active. A service or other
+executable running from a Cargo target also protects that target. It never
+follows symbolic links or removes source, Archives, Simulator data, or Cargo
+registry caches.
 
 Cargo discovery includes `~/.codex/workspace-backups` as well as live projects
-and Codex worktrees. Only validated Cargo build directories are eligible;
+and Codex worktrees, plus Cargo targets directly under `/private/tmp`.
+Temporary targets must belong to the current user and contain both Cargo
+markers; temporary project containers are not searched recursively.
+Only validated Cargo build directories are eligible;
 backup archives, unmerged changes, development data, and test evidence remain.
-The seven-day rule and active-build checks also apply to backup artifacts.
+The configured retention and active-build checks also apply to backup artifacts.
 
 The same daily run removes Bazel output bases only when their workspace marker
 and directory hash agree, and the recorded local workspace no longer exists.
 An existing workspace always keeps its cache. Canaryd rechecks server PIDs,
 the native cache lock, and the missing workspace before deletion. Busy or
-unverifiable caches and shared download/install caches remain untouched.
-Orphaned Bazel caches do not need to reach the seven-day retention period.
+unverifiable output bases remain untouched.
+Orphaned Bazel output bases do not have an age threshold.
+
+Shared Bazel repository caches use the same configured retention: old download
+entries and extracted repository hash directories can be reclaimed while
+recent entries stay. Cleanup requires no active Bazel client or server, locks
+all known output bases, and uses Bazel's `contents/gc_lock` for extracted
+repositories. Running executables protect their cache directories. Unknown
+layouts and unavailable activity checks retain the cache; install caches stay.
+Shared-cache cleanup is incremental: each user cache gets up to 16 eligible
+hashes and a 15-second soft budget, within a 60-second round budget. Candidate
+order varies across runs so one protected prefix does not monopolize cleanup.
+An in-progress tree operation can finish after the budget; locks are released
+before a later round retries the remainder.
+The same run cleans completed sccache objects in
+`~/Library/Caches/Mozilla.sccache` after the configured retention (24h by default).
+Recent or open objects, preprocessor data, temporary writes and custom cache
+locations remain. Active compiler processes or unavailable inspection skip
+sccache cleanup. Each round removes up to 10,000 objects within a 30-second soft
+budget and reports object counts, logical bytes and skip reasons separately.
+The sccache service is not restarted; its in-memory size can lag disk eviction
+until entries are replaced or the service restarts.
+
 Run `canaryd clean` to apply these checks manually.
+
+View or change the retention with:
+
+```sh
+canaryd config build-retention       # show the effective retention (default: 24h)
+canaryd config build-retention 48h   # save a 48-hour retention
+canaryd config build-retention 24h   # use the default duration again
+```
+
+The setting accepts whole hours from `1h` to `87600h` and is saved per user in
+`~/Library/Application Support/canaryd/build-cleanup-retention`. Both scheduled
+and manual cleanup read it at the start of each round; no restart is required.
+An invalid or unreadable configuration stops that round with an error.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -305,7 +344,7 @@ canaryd status
 | Agent | Schedule | Work |
 | --- | ---: | --- |
 | Full health check | Every 5 minutes | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
-| Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup targets, and orphaned Bazel caches |
+| Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup and temporary targets, orphaned Bazel output bases, and stale shared repository entries |
 
 Use `canaryd stop` to stop both tasks until you run `canaryd start` again.
 Status, history, help, and manual checks do not start background tasks. You do
@@ -385,7 +424,8 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd clean` | Clean stale Xcode/Cargo outputs and orphaned Bazel caches now |
+| `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
+| `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd start` | Start background monitoring, including after login |
 | `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
@@ -418,7 +458,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
 | Idle Codex screen control | 30 minutes of user inactivity and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
-| Stale build output | Complete tree inactive for seven days and related tools idle | Remove a validated DerivedData or Cargo target directory |
+| Stale build output | Complete tree inactive for the configured retention (default 24h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible real-history probe | Restart quietly; notify only when recovery is blocked |
 | System pressure | Three consecutive full checks | Send one system-degraded notification |
@@ -449,11 +489,16 @@ The shared safety rules are:
 - Playwright Chrome cleanup revalidates an exact PID, sends only `SIGTERM`, and
   never stores the command line used for classification.
 - Xcode/Cargo cleanup pauses while related tools are active and removes only
-  validated, reproducible directories whose complete trees are at least seven
-  days old, including Cargo targets in Codex workspace backups.
-- Bazel cleanup requires a missing local workspace, no active server, and an
+  validated, reproducible directories whose complete trees have reached the
+  configured retention (default 24h), including Cargo targets in Codex workspace
+  backups and directly under `/private/tmp`. Targets containing running
+  executables are retained.
+- Bazel output-base cleanup requires a missing local workspace, no active server, and an
   exclusive native lock on that output base. Starting clients or unavailable
-  process inspection block deletion; shared download/install caches remain.
+  process inspection block deletion.
+- Shared Bazel repository entries require the configured retention without modification,
+  no active Bazel client or server, and all known output-base locks. Extracted
+  repositories additionally use the native GC lock; install caches remain.
 - Workspace backup containers, archives, unmerged changes, development data,
   and test evidence outside validated build directories are retained.
 - Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,
