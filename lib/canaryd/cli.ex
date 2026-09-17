@@ -21,9 +21,74 @@ defmodule Canaryd.CLI do
 
   alias Canaryd.Apps.CleanClip
 
-  def main(argv, options \\ [])
+  def main(argv, options \\ []) do
+    configure(argv, options)
+  end
 
-  def main([command] = argv, options) when command in ["check", "thermal-check", "clean"] do
+  defp configure([command | rest] = argv, options)
+       when command in ["start", "install", "clean", "config"] do
+    if rest == ["--help"] do
+      run_command(["--help"], options)
+    else
+      configure_options(command, rest, argv, options)
+    end
+  end
+
+  defp configure(argv, options), do: run_command(argv, options)
+
+  defp configure_options(command, rest, argv, options) do
+    if command == "config" and match?(["build-retention" | _], rest) do
+      run_command(argv, options)
+    else
+      {overrides, positional, invalid} =
+        OptionParser.parse(rest, strict: Canaryd.Config.switches())
+
+      allowed =
+        if command == "clean",
+          do: [:build_retention],
+          else: Keyword.keys(Canaryd.Config.switches())
+
+      cond do
+        positional != [] and overrides == [] and invalid == [] ->
+          run_command(argv, options)
+
+        invalid != [] or positional != [] or
+            Enum.any?(overrides, fn {key, _} -> key not in allowed end) ->
+          config_error("unknown, misplaced or incomplete option", options)
+
+        true ->
+          case Canaryd.Config.resolve(overrides, options) do
+            {:ok, config} ->
+              options = Keyword.put(options, :config, config)
+
+              if command == "config",
+                do: print_config(config),
+                else: run_command([command], options)
+
+            {:error, reason} ->
+              config_error(reason, options)
+          end
+      end
+    end
+  end
+
+  defp config_error(reason, options) do
+    IO.puts(:stderr, "configuration error: #{inspect(reason)}")
+    Keyword.get(options, :halt, &Elixir.System.halt/1).(2)
+  end
+
+  defp print_config(config) do
+    for key <- [:check_interval, :cleanup_at, :build_retention] do
+      IO.puts(
+        "#{String.replace(to_string(key), "_", "-")}: #{Canaryd.Config.format(key, Map.fetch!(config, key))}"
+      )
+    end
+  end
+
+  defp run_command(argv, options)
+
+  defp run_command([command] = argv, options)
+       when command in ["check", "thermal-check", "clean"] do
     ensure_helper =
       Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
 
@@ -33,12 +98,15 @@ defmodule Canaryd.CLI do
     end
   end
 
-  def main(argv, options) do
+  defp run_command(argv, options) do
     dispatch(argv, options)
   end
 
   defp dispatch([command], options) when command in ["start", "install"] do
-    start = Keyword.get(options, :start, &Setup.install/0)
+    start =
+      Keyword.get(options, :start, fn ->
+        Setup.install(config: Keyword.fetch!(options, :config))
+      end)
 
     case start.() do
       :ok -> IO.puts("background monitoring started")
@@ -56,7 +124,14 @@ defmodule Canaryd.CLI do
   end
 
   defp dispatch(["clean"], options) do
-    build_cleanup = Keyword.get(options, :build_cleanup, &BuildCleanup.run/0)
+    build_cleanup =
+      Keyword.get(options, :build_cleanup, fn ->
+        config = Keyword.fetch!(options, :config)
+
+        BuildCleanup.run(
+          build_retention: Canaryd.Config.format(:build_retention, config.build_retention)
+        )
+      end)
 
     case build_cleanup.() do
       {:ok, result} ->
@@ -74,7 +149,7 @@ defmodule Canaryd.CLI do
   defp dispatch(["config", "build-retention"], options) do
     options
     |> Keyword.get(:home, Paths.home_dir())
-    |> BuildCleanupConfig.read()
+    |> then(&Canaryd.Config.retention([], home: &1))
     |> print_build_retention()
   end
 
@@ -226,7 +301,17 @@ defmodule Canaryd.CLI do
       canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
       canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
-      canaryd start              start background monitoring (also after login)
+      canaryd start [options]    start/update background monitoring (also after login)
+      canaryd config [options]   show effective configuration
+
+      --check-interval 5m        monitoring interval (1s..24h; units: s, m, h)
+      --cleanup-at 04:00         daily cleanup time (local HH:MM)
+      --build-retention 24h      cache retention (1h..87600h)
+
+      start/config accept all options; clean accepts --build-retention.
+      Environment: CANARYD_CHECK_INTERVAL, CANARYD_CLEANUP_AT, CANARYD_BUILD_RETENTION.
+      Priority: flags > environment > saved retention > defaults.
+      Run start again to apply schedule changes; no configuration file is required.
       canaryd stop               stop background monitoring until the next start
       canaryd --version          show the installed version
     """)

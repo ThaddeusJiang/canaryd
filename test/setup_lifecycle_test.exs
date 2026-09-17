@@ -24,6 +24,35 @@ defmodule Canaryd.SetupLifecycleTest do
     %{state: state, options: [runner: runner, ensure_notification_helper: fn -> :ok end]}
   end
 
+  test "custom schedule is persisted and repeated installation stays idempotent", %{
+    options: options,
+    state: state
+  } do
+    {:ok, config} =
+      Canaryd.Config.resolve([check_interval: "2m", cleanup_at: "03:45", build_retention: "48h"],
+        env: %{}
+      )
+
+    options = Keyword.put(options, :config, config)
+    assert :ok = Setup.install(options)
+
+    paths =
+      for label <- Setup.labels(), do: Path.join(Paths.launch_agents_dir(), label <> ".plist")
+
+    [check, clean] = Enum.map(paths, &File.read!/1)
+    assert check =~ "<integer>120</integer>"
+    assert clean =~ "<integer>3</integer>"
+    assert clean =~ "<integer>45</integer>"
+    assert clean =~ "<string>48h</string>"
+    for path <- paths, do: assert({_output, 0} = System.cmd("plutil", ["-lint", path]))
+    before = Agent.get(state, & &1.calls)
+    assert :ok = Setup.install(options)
+    after_calls = Agent.get(state, & &1.calls)
+
+    assert Enum.count(before, fn {verb, _} -> verb == "bootstrap" end) ==
+             Enum.count(after_calls, fn {verb, _} -> verb == "bootstrap" end)
+  end
+
   test "repeated start preserves loaded agents and plist metadata", %{
     options: options,
     state: state
