@@ -62,7 +62,8 @@ defmodule Canaryd.BuildCleanupConfig do
     end
   end
 
-  defp parse(value) when is_binary(value) and byte_size(value) <= @max_size do
+  @doc false
+  def parse(value) when is_binary(value) and byte_size(value) <= @max_size do
     case Regex.run(~r/\A([0-9]+)h?\z/, String.trim(value)) do
       [_, number] ->
         case String.to_integer(number) do
@@ -75,7 +76,7 @@ defmodule Canaryd.BuildCleanupConfig do
     end
   end
 
-  defp parse(_value), do: {:error, :invalid_retention}
+  def parse(_value), do: {:error, :invalid_retention}
 
   defp replace_file(path, contents) do
     temporary = "#{path}.#{System.pid()}.#{System.unique_integer([:positive])}.tmp"

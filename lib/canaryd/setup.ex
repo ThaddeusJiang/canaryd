@@ -19,19 +19,29 @@ defmodule Canaryd.Setup do
   def obsolete_agent_labels, do: @obsolete_agent_labels
 
   @doc false
-  def agent_specs(escript_path) do
+  def agent_specs(escript_path, config \\ nil) do
+    config = config || Canaryd.Config.defaults()
+
     [
       %{
         label: @label,
         command: "check",
-        interval: Duration.minutes(5),
+        interval: config.check_interval,
         run_at_load: true,
         escript_path: escript_path
       },
       %{
         label: @build_cleanup_label,
         command: "clean",
-        calendar: %{hour: 4, minute: 0},
+        calendar: config.cleanup_at,
+        arguments:
+          if(config.retention_override,
+            do: [
+              "--build-retention",
+              Canaryd.Config.format(:build_retention, config.build_retention)
+            ],
+            else: []
+          ),
         run_at_load: false,
         escript_path: escript_path
       }
@@ -39,15 +49,23 @@ defmodule Canaryd.Setup do
   end
 
   def install(options \\ []) do
-    agents = configured_agents()
     runner = Keyword.get(options, :runner, &System.cmd/3)
 
     ensure_helper =
       Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
 
-    with :ok <- ensure_helper.(),
+    with {:ok, config} <- resolve_config(options),
+         agents = agent_specs(executable_path(), config),
+         :ok <- ensure_helper.(),
          :ok <- remove_obsolete_agents(runner) do
       install_agents(agents, runner)
+    end
+  end
+
+  defp resolve_config(options) do
+    case Keyword.fetch(options, :config) do
+      {:ok, config} -> {:ok, config}
+      :error -> Canaryd.Config.resolve(options)
     end
   end
 
@@ -173,6 +191,7 @@ defmodule Canaryd.Setup do
       <array>
         <string>#{agent.escript_path}</string>
         <string>#{agent.command}</string>
+        #{Enum.map_join(Map.get(agent, :arguments, []), "\n", &"<string>#{&1}</string>")}
       </array>
       #{schedule_plist(agent)}#{run_at_load_plist(agent)}
       <key>StandardOutPath</key>
