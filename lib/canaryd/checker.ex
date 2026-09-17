@@ -417,53 +417,92 @@ defmodule Canaryd.Checker do
     Map.take(device, [:udid, :name, :runtime, :state, :last_used_at])
   end
 
-  defp check_idle_codex_processes(state, events, idle_duration) do
+  @doc "Runs only Codex helper reclamation; dry runs do not advance observations."
+  def run_codex(options \\ []) do
+    Store.with_tables(fn state, events ->
+      check_idle_codex_processes(state, events, System.idle_duration(), options)
+    end)
+  end
+
+  @doc false
+  def check_idle_codex_processes(state, events, idle_duration, options \\ []) do
     monitor_state =
       Store.get_value(state, :idle_codex_processes, CodexProcessMonitor.default_state())
 
-    if idle_duration >= CodexProcessMonitor.minimum_idle() do
-      case CodexProcesses.scan() do
-        {:ok, processes} ->
-          {new_monitor_state, actions} =
-            CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration)
+    scanner = Keyword.get(options, :scanner, &CodexProcesses.scan/0)
+    dry_run = Keyword.get(options, :dry_run, false)
+    now = Keyword.get(options, :now, Elixir.System.system_time(:millisecond))
 
-          Store.put_state(state, :idle_codex_processes, new_monitor_state)
-          results = Enum.map(actions, &{&1, run_codex_process_action(events, &1)})
-          notify_codex_process_results(results)
+    case scanner.() do
+      {:ok, processes} ->
+        {new_state, actions} =
+          CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration, now)
 
-          %{
-            status: :available,
-            detected: length(processes),
-            actions: Enum.map(results, &elem(&1, 1))
-          }
+        results =
+          if dry_run do
+            Enum.map(
+              actions,
+              &{&1, if(elem(&1, 0) == :terminate, do: :would_terminate, else: :detected)}
+            )
+          else
+            Store.put_state(state, :idle_codex_processes, new_state)
+            results = Enum.map(actions, &{&1, run_codex_process_action(events, &1, options)})
+            notify = Keyword.get(options, :notifier, &notify_codex_process_results/1)
+            notify.(results)
+            results
+          end
 
-        {:error, reason} ->
-          Store.put_state(
-            state,
-            :idle_codex_processes,
-            CodexProcessMonitor.reset_observations(monitor_state)
-          )
+        reports =
+          Enum.map(processes, fn process ->
+            reason = CodexProcessMonitor.protection_reason(process, idle_duration)
 
-          %{status: :unavailable, detected: 0, actions: [], reason: reason}
-      end
-    else
-      {new_monitor_state, []} =
-        CodexProcessMonitor.evaluate(monitor_state, [], idle_duration)
+            status =
+              Enum.find_value(results, :protected, fn {action, result} ->
+                if elem(action, 1).id == process.id, do: result
+              end)
 
-      Store.put_state(state, :idle_codex_processes, new_monitor_state)
-      %{status: :skipped_active, detected: 0, actions: []}
+            observation = new_state.observations[process.id]
+
+            Map.merge(codex_process_details(process), %{
+              status: status,
+              reason: reason,
+              quiet_duration: if(observation, do: now - observation.quiet_since, else: 0)
+            })
+          end)
+
+        %{
+          status: :available,
+          detected: length(processes),
+          protected: Enum.count(reports, &(&1.status == :protected)),
+          actions: Enum.map(results, &elem(&1, 1)),
+          processes: reports
+        }
+
+      {:error, reason} ->
+        unless dry_run,
+          do:
+            Store.put_state(
+              state,
+              :idle_codex_processes,
+              CodexProcessMonitor.reset_observations(monitor_state)
+            )
+
+        %{status: :unavailable, detected: 0, actions: [], processes: [], reason: reason}
     end
   end
 
-  defp run_codex_process_action(events, {:detected, process, count}) do
+  defp run_codex_process_action(events, {:detected, process, count}, _options) do
     details = process |> codex_process_details() |> Map.put(:count, count)
     Store.log_event(events, :codex_processes, :idle_detected, details)
     :detected
   end
 
-  defp run_codex_process_action(events, {:terminate, process}) do
-    with true <- System.idle_duration() >= CodexProcessMonitor.minimum_idle(),
-         :ok <- CodexProcesses.terminate(process) do
+  defp run_codex_process_action(events, {:terminate, process}, options) do
+    idle_reader = Keyword.get(options, :idle_reader, &System.idle_duration/0)
+    terminator = Keyword.get(options, :terminator, &CodexProcesses.terminate/1)
+
+    with true <- CodexProcessMonitor.eligible?(process, idle_reader.()),
+         :ok <- terminator.(process) do
       Store.log_event(events, :codex_processes, :terminated, codex_process_details(process))
       :terminated
     else
@@ -473,8 +512,8 @@ defmodule Canaryd.Checker do
       :already_stopped ->
         codex_process_termination_skipped(events, process, :already_stopped)
 
-      {:error, :process_identity_changed} ->
-        codex_process_termination_skipped(events, process, :process_identity_changed)
+      {:error, reason} when reason in [:process_identity_changed, :process_became_active] ->
+        codex_process_termination_skipped(events, process, reason)
 
       {:error, reason} ->
         details = Map.put(codex_process_details(process), :reason, inspect(reason))

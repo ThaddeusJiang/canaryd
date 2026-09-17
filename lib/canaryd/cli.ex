@@ -23,7 +23,8 @@ defmodule Canaryd.CLI do
 
   def main(argv, options \\ [])
 
-  def main([command] = argv, options) when command in ["check", "thermal-check", "clean"] do
+  def main([command] = argv, options)
+      when command in ["check", "thermal-check", "clean", "reclaim"] do
     ensure_helper =
       Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
 
@@ -52,6 +53,27 @@ defmodule Canaryd.CLI do
     case stop.() do
       :ok -> IO.puts("background monitoring stopped")
       {:error, reason} -> IO.puts("stop failed: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch(["reclaim" | flags], options) when flags in [[], ["--dry-run"]] do
+    reclaimer = Keyword.get(options, :reclaimer, &Checker.run_codex/1)
+
+    case reclaimer.(dry_run: flags == ["--dry-run"]) do
+      %{status: :available} = result ->
+        IO.puts("Codex helpers: #{result.detected}, protected: #{result.protected}")
+
+        Enum.each(result.processes, fn process ->
+          IO.puts("  #{process.name} (PID #{process.pid}): #{reclaim_status(process)}")
+        end)
+
+        IO.puts("Requires 30 minutes of observed inactivity; see canaryd history codex.")
+
+      {:error, :locked} ->
+        IO.puts("another check is running, skipping")
+
+      %{status: :unavailable, reason: reason} ->
+        IO.puts("process scan unavailable: #{inspect(reason)}")
     end
   end
 
@@ -223,6 +245,7 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
+      canaryd reclaim [--dry-run]  reclaim confirmed quiet Codex helpers, or preview only
       canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
       canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
@@ -231,6 +254,21 @@ defmodule Canaryd.CLI do
       canaryd --version          show the installed version
     """)
   end
+
+  defp reclaim_status(%{status: :detected, quiet_duration: quiet}) do
+    "observing (#{div(quiet, Duration.minutes(1))}/30 min quiet)"
+  end
+
+  defp reclaim_status(%{status: :would_terminate}), do: "would stop"
+  defp reclaim_status(%{status: :terminated}), do: "stopped"
+  defp reclaim_status(%{status: :termination_skipped}), do: "kept: changed during revalidation"
+  defp reclaim_status(%{status: :termination_failed}), do: "could not stop; see history"
+  defp reclaim_status(%{reason: :working_children}), do: "kept: has child processes"
+
+  defp reclaim_status(%{reason: :user_active}),
+    do: "kept: adapter requires 30 min of user inactivity"
+
+  defp reclaim_status(_), do: "kept: activity unavailable"
 
   defp print_build_retention({:ok, retention}) do
     IO.puts("build retention: #{BuildCleanupConfig.format(retention)}")
@@ -314,12 +352,8 @@ defmodule Canaryd.CLI do
     "idle Simulator scan unavailable"
   end
 
-  defp codex_process_summary(%{codex_process_monitor: %{status: :skipped_active}}) do
-    "idle Codex process scan: waiting for 30 minutes of user inactivity"
-  end
-
   defp codex_process_summary(%{codex_process_monitor: %{status: :available} = monitor}) do
-    "idle Codex screen-control processes=#{monitor.detected}, " <>
+    "Codex helpers=#{monitor.detected}, protected=#{monitor.protected}, " <>
       "actions=#{inspect(monitor.actions)}"
   end
 

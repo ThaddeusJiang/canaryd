@@ -116,7 +116,7 @@ defmodule Canaryd.CLITest do
   end
 
   test "manual commands prepare notifications without starting background tasks" do
-    for command <- ["clean", "check", "thermal-check"] do
+    for command <- ["clean", "check", "thermal-check", "reclaim"] do
       output =
         capture_io(fn ->
           CLI.main([command],
@@ -128,5 +128,56 @@ defmodule Canaryd.CLITest do
 
       assert output == "#{command} failed: :helper_unavailable\n"
     end
+  end
+
+  test "reclaim previews protected and quiet helpers without enabling background tasks" do
+    reclaimer = fn options ->
+      assert options == [dry_run: true]
+
+      %{
+        status: :available,
+        detected: 3,
+        protected: 1,
+        actions: [],
+        processes: [
+          %{pid: 1, name: "node_repl", status: :detected, reason: nil, quiet_duration: 600_000},
+          %{
+            pid: 2,
+            name: "node_repl",
+            status: :protected,
+            reason: :working_children,
+            quiet_duration: 0
+          },
+          %{pid: 3, name: "node_repl", status: :would_terminate, reason: nil, quiet_duration: 0}
+        ]
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        CLI.main(["reclaim", "--dry-run"],
+          reclaimer: reclaimer,
+          ensure_notification_helper: fn -> flunk("preview must not install helpers") end
+        )
+      end)
+
+    assert output =~ "observing (10/30 min quiet)"
+    assert output =~ "kept: has child processes"
+    assert output =~ "would stop"
+  end
+
+  test "reclaim uses the guarded policy and reports lock failures" do
+    output =
+      capture_io(fn ->
+        CLI.main(["reclaim"],
+          ensure_notification_helper: fn -> :ok end,
+          reclaimer: fn options ->
+            assert options == [dry_run: false]
+            {:error, :locked}
+          end
+        )
+      end)
+
+    assert output =~ "another check is running"
   end
 end

@@ -105,11 +105,19 @@ A real Activity Monitor snapshot showed twelve visible `SkyComputerUseClient`
 processes at once. A broad name-based cleanup would be easy to write, but it
 could terminate helpers that still belong to active work.
 
-Canaryd waits for 30 minutes of whole-Mac inactivity and requires the same
-supported process identity across three consecutive five-minute checks. Before
-acting, it rechecks inactivity plus the exact process kind, PID, and start time,
-then sends `SIGTERM` only. It never uses `pkill`, a name-only target, or
-`SIGKILL`.
+Canaryd observes cumulative CPU time and process identity for 30 minutes.
+Childless REPL and CUA hosts can qualify while you keep using the Mac; helpers
+with execution kernels or other child processes stay protected. Connected
+legacy MCP adapters still require whole-Mac inactivity. Before sending
+`SIGTERM`, Canaryd checks the exact PID, start time, parent, CPU counter, and
+children again. It never uses `pkill` or `SIGKILL`.
+
+Run `canaryd reclaim --dry-run` to see candidates and why others are kept.
+`canaryd reclaim` uses the same confirmation window as scheduled checks; it
+cannot force termination. Reclaimed tool connections may require reconnecting
+or reopening their task. Process cleanup is independent of build retention.
+
+The recording below demonstrates the earlier whole-Mac-idle policy.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -426,6 +434,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
 | `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
+| `canaryd reclaim [--dry-run]` | Reclaim confirmed quiet Codex helpers, or preview PIDs and protection reasons without acting |
 | `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd start` | Start background monitoring, including after login |
 | `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
@@ -456,7 +465,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | GUI app hang | macOS Not Responding state in two consecutive rounds | Restart a supported third-party app in the background |
 | Idle high memory | 30 minutes of user inactivity and three low-CPU, 1 GB+ rounds | Request a graceful app close |
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
-| Idle Codex screen control | 30 minutes of user inactivity and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
+| Idle Codex tool hosts | 30 observed minutes of unchanged cumulative CPU time and no children; connected legacy adapters also require user inactivity | Send `SIGTERM` to the revalidated exact PID |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
 | Stale build output | Complete tree inactive for the configured retention (default 24h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
@@ -477,11 +486,13 @@ The shared safety rules are:
   shutdown.
 - Codex helper cleanup matches only fixed Computer Use service,
   `SkyComputerUseClient computer-history mcp`, `node_repl`,
-  `unified-computer-use`, and `cua-driver mcp` signatures. It protects continuous
+  legacy `unified-computer-use`, bundled `@oai/cua-repl`, and `cua-driver mcp`
+  signatures. It protects continuous
   Computer History capture (`event-stream`), other client modes,
   `cua-driver serve`, unrelated Node.js processes, and the Codex app server.
-- Codex helper cleanup revalidates an exact PID, sends only `SIGTERM`, and never
-  stores the command line used for classification.
+- Codex helper cleanup preserves processes with children, including initialized
+  REPL kernels. CPU activity, identity changes, and scan gaps reset confirmation.
+  It revalidates the exact PID, sends only `SIGTERM`, and never stores command lines.
 - Playwright Chrome cleanup matches only the main Chrome for Testing binary
   under `Library/Caches/ms-playwright`. It protects Google Chrome, Dia,
   Clicknow, helpers, crashpad, the frontmost app, and active Playwright runners.
