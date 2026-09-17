@@ -39,18 +39,15 @@ defmodule Canaryd.MemoryProcesses do
          {:ok, process_output} <- cmd("ps", ["-Ao", "pid=,uid=,pcpu=,rss=,command="]) do
       {:ok, parse_processes(process_output, uid, apps)}
     else
-      _ -> {:error, :unavailable}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   @doc false
   def parse_running_apps(output) do
     output
-    |> String.trim()
-    |> case do
-      "" -> {:ok, []}
-      rows -> parse_app_rows(String.split(rows, "\n"))
-    end
+    |> String.split(~r/\r?\n/, trim: true)
+    |> parse_app_rows()
   end
 
   @doc false
@@ -211,7 +208,7 @@ defmodule Canaryd.MemoryProcesses do
   defp cmd(bin, args) do
     case System.cmd(bin, args, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
-      {output, _status} -> {:error, String.trim(output)}
+      {_output, _status} -> {:error, {:command_failed, bin}}
     end
   rescue
     _ -> {:error, :unavailable}

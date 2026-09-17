@@ -313,8 +313,8 @@ defmodule Canaryd.CLI do
     "high-memory apps=#{monitor.detected}, actions=#{inspect(monitor.actions)}"
   end
 
-  defp memory_summary(%{memory_monitor: %{status: :unavailable}}) do
-    "idle memory scan unavailable"
+  defp memory_summary(%{memory_monitor: %{status: :unavailable, reason: reason}}) do
+    "memory scan unavailable: #{inspect(reason)}"
   end
 
   defp simulator_summary(%{simulator_monitor: %{status: :skipped_foreground}}) do
