@@ -23,7 +23,8 @@ defmodule Canaryd.CLI do
 
   def main(argv, options \\ [])
 
-  def main([command] = argv, options) when command in ["check", "thermal-check", "clean"] do
+  def main([command] = argv, options)
+      when command in ["check", "thermal-check", "clean", "reclaim"] do
     ensure_helper =
       Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
 
@@ -52,6 +53,29 @@ defmodule Canaryd.CLI do
     case stop.() do
       :ok -> IO.puts("background monitoring stopped")
       {:error, reason} -> IO.puts("stop failed: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch(["reclaim" | flags], options) when flags in [[], ["--dry-run"]] do
+    reclaimer = Keyword.get(options, :reclaimer, &Checker.run_codex/1)
+
+    case reclaimer.(dry_run: flags == ["--dry-run"]) do
+      %{status: :available} = result ->
+        IO.puts("Codex helpers: #{result.detected}, protected: #{result.protected}")
+
+        Enum.each(result.processes, fn process ->
+          IO.puts("  #{process.name} (PID #{process.pid}): #{reclaim_status(process)}")
+        end)
+
+        IO.puts(
+          "Automatic Codex termination is disabled: existing tool sessions do not reconnect safely."
+        )
+
+      {:error, :locked} ->
+        IO.puts("another check is running, skipping")
+
+      %{status: :unavailable, reason: reason} ->
+        IO.puts("process scan unavailable: #{inspect(reason)}")
     end
   end
 
@@ -94,16 +118,6 @@ defmodule Canaryd.CLI do
     case Checker.run() do
       {:error, :locked} ->
         IO.puts("another check is running, skipping")
-
-      {:skipped_idle, idle, sys, apps} ->
-        IO.puts(
-          "idle #{Duration.to_external(idle, :second)}s, CleanClip probe skipped; " <>
-            "system warnings: #{length(sys.warnings)}; " <>
-            "#{thermal_summary(sys)}; #{memory_summary(sys)}; " <>
-            "#{simulator_summary(sys)}; #{codex_process_summary(sys)}; " <>
-            "#{playwright_browser_summary(sys)}; " <>
-            app_check_summary(apps)
-        )
 
       {:checked, _idle, sys, cc, apps} ->
         IO.puts(
@@ -160,7 +174,7 @@ defmodule Canaryd.CLI do
         Store.get_value(state, :idle_memory_processes, MemoryMonitor.default_state())
 
       pending_memory_apps = MemoryMonitor.pending_apps(memory_state)
-      IO.puts("idle high-memory apps: #{format_memory_apps(pending_memory_apps)}")
+      IO.puts("high-memory apps: #{format_memory_apps(pending_memory_apps)}")
 
       simulator_state =
         Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
@@ -223,6 +237,7 @@ defmodule Canaryd.CLI do
       canaryd check              run one check round (launchd does this every 5 min)
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
+      canaryd reclaim [--dry-run]  inspect quiet Codex helpers; --dry-run preserves observations
       canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
       canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
@@ -231,6 +246,16 @@ defmodule Canaryd.CLI do
       canaryd --version          show the installed version
     """)
   end
+
+  defp reclaim_status(%{status: :detected, quiet_duration: quiet}) do
+    "observing (#{div(quiet, Duration.minutes(1))}/30 min quiet)"
+  end
+
+  defp reclaim_status(%{status: :quiet}), do: "kept: quiet, session ownership unknown"
+  defp reclaim_status(%{reason: :working_children}), do: "kept: has child processes"
+  defp reclaim_status(%{reason: :session_activity_unknown}), do: "kept: session activity unknown"
+
+  defp reclaim_status(_), do: "kept: activity unavailable"
 
   defp print_build_retention({:ok, retention}) do
     IO.puts("build retention: #{BuildCleanupConfig.format(retention)}")
@@ -284,16 +309,12 @@ defmodule Canaryd.CLI do
     end)
   end
 
-  defp memory_summary(%{memory_monitor: %{status: :skipped_active}}) do
-    "idle memory scan: waiting for 30 minutes of user inactivity"
-  end
-
   defp memory_summary(%{memory_monitor: %{status: :available} = monitor}) do
-    "idle high-memory apps=#{monitor.detected}, actions=#{inspect(monitor.actions)}"
+    "high-memory apps=#{monitor.detected}, actions=#{inspect(monitor.actions)}"
   end
 
-  defp memory_summary(%{memory_monitor: %{status: :unavailable}}) do
-    "idle memory scan unavailable"
+  defp memory_summary(%{memory_monitor: %{status: :unavailable, reason: reason}}) do
+    "memory scan unavailable: #{inspect(reason)}"
   end
 
   defp simulator_summary(%{simulator_monitor: %{status: :skipped_foreground}}) do
@@ -314,12 +335,8 @@ defmodule Canaryd.CLI do
     "idle Simulator scan unavailable"
   end
 
-  defp codex_process_summary(%{codex_process_monitor: %{status: :skipped_active}}) do
-    "idle Codex process scan: waiting for 30 minutes of user inactivity"
-  end
-
   defp codex_process_summary(%{codex_process_monitor: %{status: :available} = monitor}) do
-    "idle Codex screen-control processes=#{monitor.detected}, " <>
+    "Codex helpers=#{monitor.detected}, protected=#{monitor.protected}, " <>
       "actions=#{inspect(monitor.actions)}"
   end
 

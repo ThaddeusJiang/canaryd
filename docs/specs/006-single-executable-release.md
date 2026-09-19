@@ -218,3 +218,12 @@ Test Plan:
 | BDD-05 | passed | `Canaryd.RuntimePathsTest`; ARM64 executable run with an isolated `HOME`; extracted payload inspection | Reported by the `v0.3.0-rc.1` user test. |
 | BDD-06 | passed | [Release workflow](https://github.com/ThaddeusJiang/canaryd/actions/runs/30779692926), [Hex package](https://hex.pm/packages/canaryd/0.3.0), and [HexDocs](https://hexdocs.pm/canaryd/0.3.0/) | The workflow published `0.3.0` to GitHub and Hex. |
 | BDD-07 | passed | `Canaryd.SetupLifecycleTest`; two consecutive starts using the new source on macOS 26.6.2 | Both live BTM records and plist, executable, and notification-helper metadata stayed unchanged. Real updates can still trigger system notifications. |
+
+On 2026-09-18, the installed calendar-based health check was verified against
+real `pmset` sleep/wake records and persisted Canaryd event timestamps. All times
+below are JST (UTC+09:00). Sleep at 20:08:58 covered the 20:10 and 20:15 slots;
+wake at 20:16:15 was followed by check events at 20:16:19, then the normal 20:20
+round. Sleep at 20:50:05 covered the 20:55 slot; wake at 20:56:57 was followed by
+events at 20:56:57–20:56:59, then the normal 21:00 round. Each wake produced one
+catch-up round, with no replay of the missed-check backlog. This verifies wake
+catch-up; sustained temperature reduction has not been established.

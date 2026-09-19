@@ -30,7 +30,7 @@ history item. Duplicate real content is acceptable.
 
 ## Relationships
 
-- `Canaryd.Checker` runs the probe during each active check round.
+- `Canaryd.Checker` checks liveness each round and schedules functional probes independently.
 - CleanClip's Core Data store identifies recent reusable history items and
   records new rows or copy-count changes.
 - CleanClip's history content directory stores the original data for every
@@ -184,3 +184,16 @@ Acceptance Evidence:
 | BDD-02 | passed | matching-row, copy-count, omitted-secondary-file, and different-content tests; live duplicate-row probe | CleanClip can create a new row when the source application differs |
 | BDD-03 | passed | named-pasteboard restoration and concurrent-write tests | Text and custom data verified |
 | BDD-04 | passed | missing content, command failure, and unchanged-count tests | Boundary failures verified |
+
+## Awake Checks and Independent Probe Cadence
+
+Process liveness is checked every full round, including while the user is away.
+A missing process is started with `open -g` and probed immediately after a
+successful start. Failed starts are recorded and use the existing failure and
+notification policy without attempting a clipboard probe.
+
+After a successful functional probe, the next probe is due after 30 minutes.
+Skipped probes leave failure counters and the last probe timestamp unchanged.
+Failed probes retry on the next full check and retain the existing restart
+cooldown. A backwards clock causes a fresh probe. Keyboard inactivity does not
+suppress either layer. `CheckerCleanClipTest` covers these scheduling boundaries.

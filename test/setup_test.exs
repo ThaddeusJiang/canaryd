@@ -23,7 +23,7 @@ defmodule Canaryd.SetupTest do
              %{
                label: "com.thaddeusjiang.canaryd",
                command: "check",
-               interval: 300_000,
+               calendar: calendar,
                run_at_load: true
              },
              %{
@@ -33,15 +33,19 @@ defmodule Canaryd.SetupTest do
                run_at_load: false
              }
            ] = Setup.agent_specs("/Applications/canaryd")
+
+    assert calendar == Enum.map(0..11, &%{minute: &1 * 5})
   end
 
-  test "converts the interval to launchd seconds at the plist boundary" do
+  test "uses calendar slots so missed checks coalesce at wake" do
     [agent, _cleanup_agent] = Setup.agent_specs("/Applications/canaryd")
 
     assert Setup.agent_plist(agent) =~
-             ~r/<key>StartInterval<\/key>\s+<integer>300<\/integer>/
+             ~r/<key>StartCalendarInterval<\/key>\s+<array>/
 
     assert Setup.agent_plist(agent) =~ "<key>RunAtLoad</key>"
+    refute Setup.agent_plist(agent) =~ "<key>StartInterval</key>"
+    assert length(Regex.scan(~r/<key>Minute<\/key>/, Setup.agent_plist(agent))) == 12
   end
 
   test "renders cleanup at 04:00 without running it during installation" do

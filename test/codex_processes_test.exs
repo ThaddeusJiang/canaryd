@@ -1,14 +1,14 @@
 defmodule Canaryd.CodexProcessesTest do
   use ExUnit.Case, async: true
 
-  alias Canaryd.{CodexProcessMonitor, CodexProcesses, Duration}
+  alias Canaryd.CodexProcesses
 
   @client_path "/Users/amami/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
 
   test "recognizes current-user Computer History MCP clients without retaining command lines" do
     output = """
-      49 2072 501 Mon Sep  7 20:08:09 2026 #{@client_path} computer-history mcp
-      50 2072 502 Mon Sep  7 20:09:10 2026 #{@client_path} computer-history mcp
+      49 2072 501 Mon Sep  7 20:08:09 2026 0:00.13 #{@client_path} computer-history mcp
+      50 2072 502 Mon Sep  7 20:09:10 2026 0:00.13 #{@client_path} computer-history mcp
     """
 
     assert CodexProcesses.parse_processes(output, 501) == [
@@ -34,42 +34,20 @@ defmodule Canaryd.CodexProcessesTest do
           "#{@client_path}.backup computer-history mcp",
           "/bin/echo #{@client_path} computer-history mcp"
         ] do
-      output = "49 2072 501 Mon Sep 7 20:08:09 2026 #{command}"
+      output = "49 2072 501 Mon Sep 7 20:08:09 2026 0:00.13 #{command}"
       assert CodexProcesses.parse_processes(output, 501) == [], command
     end
   end
 
-  test "parsed clients require a fresh three-round sequence after user activity" do
-    output = "49 2072 501 Mon Sep 7 20:08:09 2026 #{@client_path} computer-history mcp"
-    [client] = CodexProcesses.parse_processes(output, 501)
-    idle = Duration.minutes(30)
-
-    {state, [{:detected, ^client, 1}]} =
-      CodexProcessMonitor.evaluate(CodexProcessMonitor.default_state(), [client], idle)
-
-    {state, []} = CodexProcessMonitor.evaluate(state, [client], Duration.minutes(29))
-    {state, [{:detected, ^client, 1}]} = CodexProcessMonitor.evaluate(state, [client], idle)
-    {state, [{:detected, ^client, 2}]} = CodexProcessMonitor.evaluate(state, [client], idle)
-    {_state, [{:terminate, ^client}]} = CodexProcessMonitor.evaluate(state, [client], idle)
-
-    replaced = String.replace(output, "computer-history mcp", "computer-history event-stream")
-    scanner = fn -> {:ok, CodexProcesses.parse_processes(replaced, 501)} end
-    runner = fn _bin, _args -> flunk("a client that changed mode must not be terminated") end
-
-    assert :already_stopped =
-             CodexProcesses.terminate(client, scanner, runner, fn _duration -> :ok end)
-  end
-
   test "finds only current-user Codex screen-control helpers" do
     output = """
-      42 1228 501 Mon Sep  7 20:01:02 2026 /Users/amami/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService
-      43 2072 501 Mon Sep  7 20:02:03 2026 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl
-      44 2072 501 Mon Sep  7 20:03:04 2026 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/amami/.codex/plugins/cache/openai-bundled/unified-computer-use/26.831.20005/scripts/launch.mjs
-      45 2072 501 Mon Sep  7 20:04:05 2026 /Users/amami/.local/bin/cua-driver mcp
-      46 1 501 Mon Sep  7 20:05:06 2026 /Applications/CuaDriver.app/Contents/MacOS/cua-driver serve
-      47 2072 501 Mon Sep  7 20:06:07 2026 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ./server.mjs
-      48 2072 502 Mon Sep  7 20:07:08 2026 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl
-      malformed
+      42 1228 501 Mon Sep  7 20:01:02 2026 0:00.13 /Users/amami/.codex/computer-use/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService
+      43 2072 501 Mon Sep  7 20:02:03 2026 0:00.13 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl
+      44 2072 501 Mon Sep  7 20:03:04 2026 0:00.13 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node /Users/amami/.codex/plugins/cache/openai-bundled/unified-computer-use/26.831.20005/scripts/launch.mjs
+      45 2072 501 Mon Sep  7 20:04:05 2026 0:00.13 /Users/amami/.local/bin/cua-driver mcp
+      46 1 501 Mon Sep  7 20:05:06 2026 0:00.13 /Applications/CuaDriver.app/Contents/MacOS/cua-driver serve
+      47 2072 501 Mon Sep  7 20:06:07 2026 0:00.13 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ./server.mjs
+      48 2072 502 Mon Sep  7 20:07:08 2026 0:00.13 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl
     """
 
     assert CodexProcesses.parse_processes(output, 501) == [
@@ -92,38 +70,73 @@ defmodule Canaryd.CodexProcessesTest do
            ]
   end
 
-  test "terminates only a revalidated exact process and never sends SIGKILL" do
-    target = process(:node_repl, 43, 2072, "Mon Sep 7 20:02:03 2026", "node_repl")
-    scanner = fn -> {:ok, [target]} end
+  test "recognizes bundled CUA launchers and protects initialized execution hosts" do
+    for app <- ["ChatGPT", "Codex"] do
+      root = "/Applications/#{app}.app/Contents/Resources/cua_node"
 
-    runner = fn
-      "kill", ["-TERM", "43"] ->
-        send(self(), {:command, "kill", ["-TERM", "43"]})
-        {:ok, ""}
+      output = """
+      10 100 501 Mon Sep 7 20:02:03 2026 0:00.04 #{root}/bin/node #{root}/lib/node_modules/@oai/cua-repl/bin/cua-repl.mjs
+      11 10 501 Mon Sep 7 20:02:03 2026 0:00.14 #{root}/bin/node_repl
+      12 100 501 Mon Sep 7 20:02:03 2026 0:00.13 #{root}/bin/node_repl
+      13 12 502 Mon Sep 7 20:02:03 2026 1:12.34 /bin/sleep 100
+      """
 
-      "kill", ["-0", "43"] ->
-        {:error, "not running"}
+      assert [launcher, empty, initialized] = CodexProcesses.parse_processes(output, 501)
+      assert launcher.kind == :computer_use_launcher
+      assert launcher.protection == :working_children
+      assert empty.protection == nil
+      assert initialized.protection == :working_children
+      refute Map.has_key?(empty, :command)
+      assert empty.cpu_time == 140
     end
-
-    assert :ok = CodexProcesses.terminate(target, scanner, runner, fn _duration -> :ok end)
-    assert_received {:command, "kill", ["-TERM", "43"]}
-    refute_received {:command, "kill", ["-KILL", _pid]}
   end
 
-  test "does not terminate a reused PID or an already stopped process" do
-    target = process(:node_repl, 43, 2072, "Mon Sep 7 20:02:03 2026", "node_repl")
+  test "rejects spoofed bundled launcher paths and unexpected arguments" do
+    root = "/Applications/ChatGPT.app/Contents/Resources/cua_node"
+    command = "#{root}/bin/node #{root}/lib/node_modules/@oai/cua-repl/bin/cua-repl.mjs"
 
-    replacement =
-      process(:node_repl, 43, 9999, "Mon Sep 7 21:02:03 2026", "node_repl")
+    for changed <- [
+          command <> " --extra",
+          String.replace(command, "lib/node_modules", "tmp"),
+          String.replace(
+            command,
+            "ChatGPT.app/Contents/Resources/cua_node/lib",
+            "Codex.app/Contents/Resources/cua_node/lib"
+          )
+        ] do
+      assert [] ==
+               CodexProcesses.parse_processes(
+                 "10 100 501 Mon Sep 7 20:02:03 2026 0:00.04 #{changed}",
+                 501
+               )
+    end
+  end
 
-    runner = fn _bin, _args -> flunk("termination command must not run") end
-    sleeper = fn _duration -> :ok end
+  test "malformed snapshots and candidate overflow fail closed" do
+    assert {:error, :invalid_process_snapshot} = CodexProcesses.parse_snapshot("malformed", 501)
 
-    assert {:error, :process_identity_changed} =
-             CodexProcesses.terminate(target, fn -> {:ok, [replacement]} end, runner, sleeper)
+    row =
+      "10 100 501 Mon Sep 7 20:02:03 2026 0:00.13 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
 
-    assert :already_stopped =
-             CodexProcesses.terminate(target, fn -> {:ok, []} end, runner, sleeper)
+    assert {:error, :invalid_process_snapshot} =
+             CodexProcesses.parse_snapshot(row <> "\nmalformed", 501)
+
+    rows = Enum.map_join(1..251, "\n", &String.replace_prefix(row, "10 ", "#{&1} "))
+    assert {:error, :too_many_candidates} = CodexProcesses.parse_snapshot(rows, 501)
+  end
+
+  test "parses long cumulative CPU times and rejects duplicate rows" do
+    row =
+      "43 100 501 Mon Sep 7 20:02:03 2026 125:01.23 /Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
+
+    assert [target] = CodexProcesses.parse_processes(row, 501)
+    assert target.cpu_time == 7_501_230
+
+    assert {:error, :invalid_process_snapshot} =
+             CodexProcesses.parse_snapshot(row <> "\n" <> row, 501)
+
+    assert {:error, :invalid_process_snapshot} =
+             CodexProcesses.parse_snapshot(String.replace(row, "125:01.23", "unknown"), 501)
   end
 
   defp process(kind, pid, ppid, started_at, name) do
@@ -133,7 +146,9 @@ defmodule Canaryd.CodexProcessesTest do
       pid: pid,
       ppid: ppid,
       started_at: started_at,
-      name: name
+      name: name,
+      cpu_time: 130,
+      protection: nil
     }
   end
 end
