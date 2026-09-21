@@ -21,6 +21,14 @@ defmodule Canaryd.MemoryProcessesTest do
             ]} = MemoryProcesses.parse_running_apps(output)
   end
 
+  test "skips a final application without bundle metadata without invalidating the scan" do
+    valid = "42\t0\t0\tCache\tcom.example.cache\t%2FApplications%2FCache.app\n"
+
+    for ending <- ["43\t2\t0\tcanaryd\t\t", "43\t2\t0\tcanaryd\t\t\n"] do
+      assert {:ok, [%{pid: 42}]} = MemoryProcesses.parse_running_apps(valid <> ending)
+    end
+  end
+
   test "aggregates an app process tree and protects active or system apps" do
     apps = [
       app(),

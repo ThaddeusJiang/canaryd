@@ -1,166 +1,84 @@
-# 010 Idle Codex Process Cleanup
-
-Idle Codex screen-control helper cleanup specification.
+# 010 Codex Helper Observation and Reclamation Boundary
 
 ## Purpose
 
-Release CPU, memory, and screen-control resources held by forgotten Codex
-Computer Use helpers without broadly terminating Codex, Node.js, or the
-long-lived CUA Driver service.
+Identify quiet Codex tool hosts while preserving their owning sessions. Process
+age, low CPU, and whole-Mac inactivity do not establish that a tool session ended.
+Automatic Codex helper termination is disabled until ownership and safe client
+recovery can be verified. Simulator and Playwright reclamation remain independent.
 
-## Scope
+## Supported Processes
 
-- In scope:
-  - Current-user `SkyComputerUseService` processes installed under the Codex
-    Computer Use app path.
-  - Current-user `SkyComputerUseClient computer-history mcp` processes installed
-    in the Codex Computer Use app's `SharedSupport/SkyComputerUseClient.app`.
-  - ChatGPT or Codex `cua_node/bin/node_repl` processes.
-  - ChatGPT or Codex Node processes running the installed
-    `unified-computer-use` launcher.
-  - Per-task `cua-driver mcp` processes.
-  - User inactivity, consecutive confirmation, exact-PID revalidation, local
-    status, event history, and batched notifications.
-- Out of scope:
-  - The Codex or ChatGPT application and app server.
-  - `cua-driver serve`, ordinary Node.js processes, artifact servers, and
-    unrelated MCP servers.
-  - Continuous Computer History capture (`event-stream`) and other
-    `SkyComputerUseClient` modes or installation paths.
-  - Inferring which Codex task owns a helper.
-  - Inspecting or persisting prompts, documents, session IDs, or command-line
-    arguments.
-  - Forced termination with `SIGKILL`.
+Recognize current-user fixed command signatures for:
 
-## Persistence
+- Codex Computer Use `SkyComputerUseService`.
+- `SkyComputerUseClient computer-history mcp`.
+- ChatGPT/Codex `cua_node/bin/node_repl`.
+- Legacy `unified-computer-use` launchers and bundled `@oai/cua-repl/bin/cua-repl.mjs`.
+  The bundled Node executable and launcher must belong to the same installation.
+- Per-task `cua-driver mcp`.
 
-### Entities
+Exclude the application, renderers, app server, GPU/network services, shared
+`cua-driver serve`, ordinary Node, artifact servers, continuous history capture,
+and unknown commands. Do not infer ownership from parent PID 1 or read task content.
 
-- `IdleCodexProcessMonitor`
-  - `observations`: A map keyed by fixed process kind, PID, and process start
-    time with the latest bounded process snapshot and consecutive observation
-    count.
-- `CodexProcess`
-  - `id`: A tuple of fixed process kind, PID, and process start time.
-  - `kind`: One of the fixed supported process kinds.
-  - `pid`: The current process identifier.
-  - `ppid`: The observed parent process identifier.
-  - `started_at`: The process start time reported by `ps`.
-  - `name`: A fixed display name derived from the supported kind.
-- `Event`
-  - Use the existing DETS event store with target `codex_processes`.
-  - Store only bounded identity fields, observation count, and action result.
-  - Never store the command line used for classification.
+## Observation Policy
 
-### Lifecycle
+1. Scan during normal Mac use. Helpers with direct children are protected, including
+   initialized REPL kernels and CUA wrappers hosting a REPL. Child detection includes
+   other users' processes.
+2. Childless REPL/CUA hosts can be observed. Other adapters are reported with unknown
+   session activity; whole-Mac idle does not make them disposable.
+3. Report a quiet host after 30 minutes of unchanged cumulative CPU, parent, kind,
+   PID, and start time. Count observations at least five minutes apart. The default
+   schedule requires seven samples. No report sends a signal or closes a connection.
+4. CPU/parent/identity changes, new children, failed scans, disappearing processes,
+   backwards clocks, and gaps over ten minutes reset observations. Shorter gaps
+   do not prove the machine stayed awake; quiet status is diagnostic only.
+5. A quiet report logs `quiet_retained` with `session_activity_unknown`. A fresh
+   observation window starts afterwards. No notification is sent for unchanged
+   quiet helpers.
 
-- A supported process observed while the user is inactive creates or advances
-  a pending observation.
-- User activity, a missing process, an unavailable scan, or a changed process
-  identity clears the incomplete sequence.
-- Three consecutive observations produce one exact-PID termination action.
-- The action rechecks user inactivity and process identity before sending
-  `SIGTERM`.
-- A stopped, replaced, failed, or skipped target requires a new
-  three-observation sequence before another action.
+## Collection and Persistence
 
-### Constraints
+Read PID, parent, UID, start time, cumulative CPU, and command with `ps` in the C
+locale. Discard command text after classification. Bound commands to five seconds
+and 4 MiB; allow at most 16,384 rows and 250 supported candidates. Malformed or
+repeated PID rows fail the whole scan closed. `ps` CPU precision is hundredths of
+a second and cannot prove absence of all activity.
 
-- User inactivity must be at least 30 minutes.
-- Confirmation requires three consecutive five-minute full check rounds.
-- Only current-user processes with a fixed supported command signature are
-  candidates.
-- One scan accepts at most 250 candidates and fails closed above that bound.
-- Actions use one positive PID and never use `pkill` or a name-only target.
-- Termination never escalates from `SIGTERM` to `SIGKILL`.
-- The monitor must not create atoms from process metadata.
+Use the existing locked DETS store and `idle_codex_processes` key. Observations use
+Unix milliseconds and store bounded process identity, `quiet_since`, `last_seen`,
+`counted_at`, and count. Legacy untimed observations restart confirmation. Events
+contain no command lines, prompts, environment variables, or browser content.
 
-## Relationships
+## CLI
 
-- `Canaryd.Checker` runs the monitor during the five-minute full health check.
-- `Canaryd.System.idle_duration/0` supplies whole-Mac keyboard and pointer
-  inactivity.
-- `Canaryd.CodexProcesses` classifies supported processes, discards command
-  lines, revalidates identity, and requests termination.
-- Thermal, idle-memory, Simulator, unresponsive-app, build-cleanup, and
-  CleanClip policies remain independent.
+- `canaryd check`: observe helpers during the scheduled check.
+- `canaryd reclaim --dry-run`: preview without changing observations or events.
+- `canaryd reclaim`: record observations and explain why hosts remain retained.
+  Despite the command name, automatic termination is disabled; the CLI says so.
+- `canaryd status`: show pending observations.
+- `canaryd history codex`: show observation and retained-host events, including
+  historical termination events from older versions.
 
-## Behavior
+## Acceptance Evidence
 
-1. While the user has been inactive for less than 30 minutes, skip process
-   collection and clear incomplete observations.
-2. Read PID, parent PID, UID, start time, and command through `ps` without
-   `sudo`.
-3. Keep only current-user processes matching one of the fixed supported
-   signatures.
-4. Discard command-line data after classification.
-5. Require three consecutive eligible observations for the same kind, PID,
-   and process start time.
-6. Immediately before acting, recheck whole-Mac inactivity.
-7. Re-scan and require the same PID and start time to retain the same supported
-   identity.
-8. Send `SIGTERM` to that exact PID and wait briefly for it to stop.
-9. Never send `SIGKILL` and never use a broad process-name match.
-10. Log detection, successful termination, skipped actions, and failed actions.
-11. Batch successful or failed counts into at most one notification for each
-    result class per check round.
-12. Expose pending processes through `canaryd status` and events through
-    `canaryd history codex`.
+Unit and isolated DETS tests cover classification, protection, observation timing,
+legacy state, failure reset, and read-only previews. There is no Codex signaling
+path in the scanner or checker.
 
-Whole-Mac inactivity and consecutive confirmation reduce false positives, but
-they cannot prove that an unattended background Codex task will never need a
-waiting helper again. The fixed allowlist and graceful exact-PID action bound
-the impact of that limitation.
+On 2026-09-17, `scripts/verify_codex_reconnect.py` used the installed
+`codex-cli 0.154.0-alpha.6.2` app server with temporary configuration and ephemeral
+engine fixtures. It made no model requests and touched no existing user task.
+Both the plain REPL and bundled CUA fixture connected and accepted `js_reset`.
+After terminating only the newly spawned childless REPL, two subsequent calls
+through the same session returned `Transport closed`. Reconnection failed, so the
+previous proposed automatic empty-host termination was withdrawn.
 
-## BDD Scenarios
+On 2026-09-19, the same isolated fixtures reproduced both failures with
+`codex-cli 0.155.0-alpha.9`: both subsequent calls returned `Transport closed`
+for each transport. The newer client does not change the retention policy.
 
-### BDD-01 Stop sustained idle screen-control helpers
-
-Given:
-- The user has been inactive for at least 30 minutes.
-- A supported current-user helper remains present.
-
-When:
-- The same process kind, PID, and start time are observed for three consecutive
-  full checks.
-
-Then:
-- Canaryd revalidates inactivity and the exact process identity.
-- Canaryd sends `SIGTERM` to the exact PID.
-- Canaryd logs the result and sends one batched notification for the round.
-
-### BDD-02 Protect active, unrelated, and changed processes
-
-Given:
-- The user is active, or a process is `cua-driver serve`, an unrelated Node.js
-  command, owned by another user, stopped, or replaced under the same PID.
-
-When:
-- Canaryd evaluates or revalidates the process list.
-
-Then:
-- Canaryd does not send a termination signal to that process.
-- A later supported process starts a new confirmation sequence.
-
-### BDD-03 Fail closed when process state is unavailable
-
-Given:
-- Process inspection fails or returns more than the bounded candidate count.
-
-When:
-- Canaryd runs a full check.
-
-Then:
-- Canaryd clears incomplete observations.
-- Canaryd does not terminate any process from that scan.
-
-## Cross-Spec Links
-
-- [005 Time Unit Convention](./005-time-unit-convention.md)
-- [007 Idle Memory Process Monitor](./007-idle-memory-process-monitor.md)
-- [008 Idle Simulator Shutdown](./008-idle-simulator-shutdown.md)
-
-## Open Questions
-
-- Add a stronger per-task activity signal only when Codex exposes one with a
-  stable, privacy-preserving identity.
+Reclamation requires a future reliable owner-release signal or verified transparent
+client reconnection. A newer client version must be retested before changing policy.

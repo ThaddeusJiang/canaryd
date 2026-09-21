@@ -75,7 +75,9 @@ defmodule Canaryd.Config do
              %{"s" => Duration.seconds(1), "m" => Duration.minutes(1), "h" => Duration.hours(1)}[
                unit
              ],
-         true <- value >= Duration.seconds(1) and value <= Duration.days(1) do
+         true <-
+           value >= Duration.minutes(1) and value <= Duration.days(1) and
+             rem(value, Duration.minutes(1)) == 0 and rem(Duration.days(1), value) == 0 do
       {:ok, value}
     else
       _ -> {:error, :invalid_interval}

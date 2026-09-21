@@ -40,7 +40,8 @@ defmodule Canaryd.SetupLifecycleTest do
       for label <- Setup.labels(), do: Path.join(Paths.launch_agents_dir(), label <> ".plist")
 
     [check, clean] = Enum.map(paths, &File.read!/1)
-    assert check =~ "<integer>120</integer>"
+    assert check =~ "<key>StartCalendarInterval</key>"
+    assert length(Regex.scan(~r/<key>Minute<\/key>/, check)) == 30
     assert clean =~ "<integer>3</integer>"
     assert clean =~ "<integer>45</integer>"
     assert clean =~ "<string>48h</string>"
@@ -76,7 +77,7 @@ defmodule Canaryd.SetupLifecycleTest do
 
     assert :ok = Setup.install(options)
     assert take_calls(state) == [{"bootout", label}, {"bootstrap", label}]
-    assert File.read!(plist_path(label)) =~ "<integer>300</integer>"
+    assert File.read!(plist_path(label)) =~ "<key>StartCalendarInterval</key>"
     assert List.last(plist_metadata(touch?: false)) == List.last(before)
   end
 

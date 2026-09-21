@@ -6,7 +6,6 @@ defmodule Canaryd.Checker do
     2. Scan the macOS unresponsive state for third-party GUI apps
     3. Confirm and shut down long-idle Simulator devices
     4. Confirm and stop leftover Playwright Chrome for Testing
-    5. User idle > 30min? -> skip the CleanClip probe
     6. L2 CleanClip process liveness (relaunch silently if dead)
     7. L3 CleanClip functional probe, state machine, silent auto-restart,
        notify only when blocked.
@@ -38,7 +37,7 @@ defmodule Canaryd.Checker do
       sys = System.check()
       record_system(state, events, sys)
       thermal_monitor = check_thermal_processes(state, events, sys)
-      memory_monitor = check_idle_memory_processes(state, events, idle)
+      memory_monitor = check_memory_processes(state, events)
       simulator_monitor = check_idle_simulators(state, events)
       codex_process_monitor = check_idle_codex_processes(state, events, idle)
       playwright_browser_monitor = check_idle_playwright_browsers(state, events)
@@ -53,13 +52,8 @@ defmodule Canaryd.Checker do
 
       app_monitor = check_unresponsive_apps(state, events)
 
-      if idle > Duration.minutes(30) do
-        Store.log_event(events, :self, :skipped_idle, %{idle_duration: idle})
-        {:skipped_idle, idle, sys, app_monitor}
-      else
-        cleanclip = check_cleanclip(state, events)
-        {:checked, idle, sys, cleanclip, app_monitor}
-      end
+      cleanclip = check_cleanclip(state, events)
+      {:checked, idle, sys, cleanclip, app_monitor}
     end)
   end
 
@@ -203,65 +197,56 @@ defmodule Canaryd.Checker do
     end)
   end
 
-  defp check_idle_memory_processes(state, events, idle_duration) do
-    monitor_state =
-      Store.get_value(state, :idle_memory_processes, MemoryMonitor.default_state())
+  @doc false
+  def check_memory_processes(state, events, options \\ []) do
+    monitor_state = Store.get_value(state, :idle_memory_processes, MemoryMonitor.default_state())
+    scanner = Keyword.get(options, :scanner, &MemoryProcesses.scan/0)
+    notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
+    now = Keyword.get(options, :now, DateTime.utc_now())
 
-    if idle_duration >= MemoryMonitor.minimum_idle() do
-      case MemoryProcesses.scan() do
-        {:ok, apps} ->
-          {new_monitor_state, actions} =
-            MemoryMonitor.evaluate(monitor_state, apps, idle_duration, DateTime.utc_now())
+    case scanner.() do
+      {:ok, apps} ->
+        {new_state, actions} = MemoryMonitor.evaluate(monitor_state, apps, 0, now)
+        Store.put_state(state, :idle_memory_processes, new_state)
+        results = Enum.map(actions, &run_memory_action(events, &1, notifier))
 
-          Store.put_state(state, :idle_memory_processes, new_monitor_state)
-          results = Enum.map(actions, &run_memory_action(events, &1))
-          detected = Enum.count(apps, &MemoryMonitor.candidate?/1)
+        %{
+          status: :available,
+          detected: Enum.count(apps, &MemoryMonitor.candidate?/1),
+          actions: results
+        }
 
-          %{status: :available, detected: detected, actions: results}
+      {:error, reason} ->
+        Store.put_state(
+          state,
+          :idle_memory_processes,
+          MemoryMonitor.reset_observations(monitor_state)
+        )
 
-        {:error, reason} ->
-          Store.put_state(
-            state,
-            :idle_memory_processes,
-            MemoryMonitor.reset_observations(monitor_state)
-          )
-
-          %{status: :unavailable, detected: 0, actions: [], reason: reason}
-      end
-    else
-      {new_monitor_state, []} =
-        MemoryMonitor.evaluate(monitor_state, [], idle_duration, DateTime.utc_now())
-
-      Store.put_state(state, :idle_memory_processes, new_monitor_state)
-      %{status: :skipped_active, detected: 0, actions: []}
+        %{status: :unavailable, detected: 0, actions: [], reason: reason}
     end
   end
 
-  defp run_memory_action(events, {:detected, app, count}) do
-    details = app |> memory_details() |> Map.put(:count, count)
-    Store.log_event(events, :memory, :idle_high_memory_detected, details)
+  defp run_memory_action(events, {:detected, app, count}, _notifier) do
+    Store.log_event(
+      events,
+      :memory,
+      :high_memory_detected,
+      Map.put(memory_details(app), :count, count)
+    )
+
     :detected
   end
 
-  defp run_memory_action(events, {:close, app}) do
-    case MemoryProcesses.close(app) do
-      :ok ->
-        details = memory_details(app)
-        Store.log_event(events, :memory, :closed, details)
+  defp run_memory_action(events, {:alert, app}, notifier) do
+    Store.log_event(events, :memory, :high_memory_alerted, memory_details(app))
 
-        Notifier.notify(
-          "Mac Health",
-          "Closed idle #{app.name} after it used #{app.rss_mb} MB of memory."
-        )
+    notifier.(
+      "Mac Health",
+      "#{app.name} has kept using #{app.rss_mb} MB of memory. Review it when convenient."
+    )
 
-        :closed
-
-      {:error, reason} ->
-        details = Map.put(memory_details(app), :reason, inspect(reason))
-        Store.log_event(events, :memory, :close_failed, details)
-        Notifier.notify("Mac Health", "Could not close idle high-memory app #{app.name}.")
-        :close_failed
-    end
+    :alerted
   end
 
   defp memory_details(app) do
@@ -417,105 +402,103 @@ defmodule Canaryd.Checker do
     Map.take(device, [:udid, :name, :runtime, :state, :last_used_at])
   end
 
-  defp check_idle_codex_processes(state, events, idle_duration) do
+  @doc "Inspects Codex helpers; dry runs do not advance observations."
+  def run_codex(options \\ []) do
+    Store.with_tables(fn state, events ->
+      check_idle_codex_processes(state, events, System.idle_duration(), options)
+    end)
+  end
+
+  @doc false
+  def check_idle_codex_processes(state, events, idle_duration, options \\ []) do
     monitor_state =
       Store.get_value(state, :idle_codex_processes, CodexProcessMonitor.default_state())
 
-    if idle_duration >= CodexProcessMonitor.minimum_idle() do
-      case CodexProcesses.scan() do
-        {:ok, processes} ->
-          {new_monitor_state, actions} =
-            CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration)
+    scanner = Keyword.get(options, :scanner, &CodexProcesses.scan/0)
+    dry_run = Keyword.get(options, :dry_run, false)
+    now = Keyword.get(options, :now, Elixir.System.system_time(:millisecond))
 
-          Store.put_state(state, :idle_codex_processes, new_monitor_state)
-          results = Enum.map(actions, &{&1, run_codex_process_action(events, &1)})
-          notify_codex_process_results(results)
+    case scanner.() do
+      {:ok, processes} ->
+        {new_state, actions} =
+          CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration, now)
 
-          %{
-            status: :available,
-            detected: length(processes),
-            actions: Enum.map(results, &elem(&1, 1))
-          }
+        results =
+          if dry_run do
+            Enum.map(
+              actions,
+              &{&1, elem(&1, 0)}
+            )
+          else
+            Store.put_state(state, :idle_codex_processes, new_state)
+            results = Enum.map(actions, &{&1, run_codex_process_action(events, &1, options)})
+            results
+          end
 
-        {:error, reason} ->
-          Store.put_state(
-            state,
-            :idle_codex_processes,
-            CodexProcessMonitor.reset_observations(monitor_state)
-          )
+        reports =
+          Enum.map(processes, fn process ->
+            reason = CodexProcessMonitor.protection_reason(process, idle_duration)
 
-          %{status: :unavailable, detected: 0, actions: [], reason: reason}
-      end
-    else
-      {new_monitor_state, []} =
-        CodexProcessMonitor.evaluate(monitor_state, [], idle_duration)
+            status =
+              Enum.find_value(results, :protected, fn {action, result} ->
+                if elem(action, 1).id == process.id, do: result
+              end)
 
-      Store.put_state(state, :idle_codex_processes, new_monitor_state)
-      %{status: :skipped_active, detected: 0, actions: []}
+            observation = new_state.observations[process.id]
+
+            Map.merge(codex_process_details(process), %{
+              status: status,
+              reason: reason,
+              quiet_duration: if(observation, do: now - observation.quiet_since, else: 0)
+            })
+          end)
+
+        %{
+          status: :available,
+          detected: length(processes),
+          protected: Enum.count(reports, &(&1.status == :protected)),
+          actions: Enum.map(results, &elem(&1, 1)),
+          processes: reports
+        }
+
+      {:error, reason} ->
+        unless dry_run,
+          do:
+            Store.put_state(
+              state,
+              :idle_codex_processes,
+              CodexProcessMonitor.reset_observations(monitor_state)
+            )
+
+        %{status: :unavailable, detected: 0, actions: [], processes: [], reason: reason}
     end
   end
 
-  defp run_codex_process_action(events, {:detected, process, count}) do
+  defp run_codex_process_action(events, {:detected, process, count}, _options) do
     details = process |> codex_process_details() |> Map.put(:count, count)
     Store.log_event(events, :codex_processes, :idle_detected, details)
     :detected
   end
 
-  defp run_codex_process_action(events, {:terminate, process}) do
-    with true <- System.idle_duration() >= CodexProcessMonitor.minimum_idle(),
-         :ok <- CodexProcesses.terminate(process) do
-      Store.log_event(events, :codex_processes, :terminated, codex_process_details(process))
-      :terminated
-    else
-      false ->
-        codex_process_termination_skipped(events, process, :user_activity_resumed)
+  # Empty does not mean abandoned: the installed app server does not recover
+  # an existing MCP connection after its childless REPL is terminated.
+  defp run_codex_process_action(events, {:quiet, process}, _options) do
+    Store.log_event(
+      events,
+      :codex_processes,
+      :quiet_retained,
+      Map.put(codex_process_details(process), :reason, :session_activity_unknown)
+    )
 
-      :already_stopped ->
-        codex_process_termination_skipped(events, process, :already_stopped)
-
-      {:error, :process_identity_changed} ->
-        codex_process_termination_skipped(events, process, :process_identity_changed)
-
-      {:error, reason} ->
-        details = Map.put(codex_process_details(process), :reason, inspect(reason))
-        Store.log_event(events, :codex_processes, :termination_failed, details)
-        :termination_failed
-    end
+    :quiet
   end
-
-  defp codex_process_termination_skipped(events, process, reason) do
-    details = Map.put(codex_process_details(process), :reason, reason)
-    Store.log_event(events, :codex_processes, :termination_skipped, details)
-    :termination_skipped
-  end
-
-  defp notify_codex_process_results(results) do
-    terminated = Enum.count(results, &match?({{:terminate, _process}, :terminated}, &1))
-
-    failed =
-      Enum.count(results, &match?({{:terminate, _process}, :termination_failed}, &1))
-
-    if terminated > 0 do
-      Notifier.notify(
-        "Mac Health",
-        "Stopped #{terminated} idle Codex screen-control #{process_word(terminated)}."
-      )
-    end
-
-    if failed > 0 do
-      Notifier.notify(
-        "Mac Health",
-        "Could not stop #{failed} idle Codex screen-control #{process_word(failed)}."
-      )
-    end
-  end
-
-  defp process_word(1), do: "process"
-  defp process_word(_count), do: "processes"
 
   defp codex_process_details(process) do
     Map.take(process, [:id, :kind, :pid, :ppid, :name])
   end
+
+  defp process_word(1), do: "process"
+  defp process_word(_count), do: "processes"
 
   defp check_idle_playwright_browsers(state, events) do
     monitor_state =
@@ -728,19 +711,50 @@ defmodule Canaryd.Checker do
     end
   end
 
-  defp check_cleanclip(state, events) do
-    now = DateTime.utc_now()
+  @doc false
+  def check_cleanclip(state, events, options \\ []) do
+    now = Keyword.get(options, :now, DateTime.utc_now())
+    alive = Keyword.get(options, :alive?, &CleanClip.process_alive?/0)
+    starter = Keyword.get(options, :starter, &CleanClip.start/0)
     st = Store.get_state(state, :cleanclip)
+    was_alive = alive.()
 
-    {st, probe_result} =
-      if CleanClip.process_alive?() do
-        {st, CleanClip.probe()}
+    running =
+      if was_alive do
+        true
       else
         Store.log_event(events, :cleanclip, :process_dead, %{})
-        CleanClip.start()
-        {st, CleanClip.probe()}
+        starter.()
       end
 
+    cond do
+      not running ->
+        result =
+          record_cleanclip_probe(
+            state,
+            events,
+            st,
+            {:fail, :process_not_running},
+            now,
+            Keyword.put(options, :restarter, fn -> false end)
+          )
+
+        Store.log_event(events, :cleanclip, :process_start_failed, %{})
+        result
+
+      was_alive and st.last_probe == :ok and
+          Duration.between(now, st.updated_at) in 0..(Duration.minutes(30) - 1) ->
+        %{probe: :skipped, action: :probe_not_due, failures: st.consecutive_failures}
+
+      true ->
+        probe = Keyword.get(options, :probe, &CleanClip.probe/0)
+        record_cleanclip_probe(state, events, st, probe.(), now, options)
+    end
+  end
+
+  defp record_cleanclip_probe(state, events, st, probe_result, now, options) do
+    restarter = Keyword.get(options, :restarter, &CleanClip.restart/0)
+    notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
     result = if probe_result == :ok, do: :ok, else: :fail
     {new_st, action} = StateMachine.transition(st, result, now)
     Store.put_state(state, :cleanclip, new_st)
@@ -752,14 +766,14 @@ defmodule Canaryd.Checker do
       {:fail, :restart} ->
         Store.log_event(events, :cleanclip, :probe_fail, %{reason: inspect(probe_result)})
 
-        if CleanClip.restart() do
+        if restarter.() do
           Store.log_event(events, :cleanclip, :restarted, %{})
         end
 
       {:fail, :blocked} ->
         Store.log_event(events, :cleanclip, :blocked, %{reason: inspect(probe_result)})
 
-        Notifier.notify(
+        notifier.(
           "Mac Health",
           "CleanClip unresponsive; auto-restart failed. Please check manually."
         )

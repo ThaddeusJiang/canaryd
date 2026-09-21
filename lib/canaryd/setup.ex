@@ -26,7 +26,7 @@ defmodule Canaryd.Setup do
       %{
         label: @label,
         command: "check",
-        interval: config.check_interval,
+        calendar: check_calendar(config.check_interval),
         run_at_load: true,
         escript_path: escript_path
       },
@@ -46,6 +46,19 @@ defmodule Canaryd.Setup do
         escript_path: escript_path
       }
     ]
+  end
+
+  defp check_calendar(interval) do
+    minutes = Duration.to_external(interval, :second) |> div(60)
+
+    if rem(60, minutes) == 0 do
+      Enum.map(0..(div(60, minutes) - 1), &%{minute: &1 * minutes})
+    else
+      Enum.map(0..(div(1440, minutes) - 1), fn index ->
+        offset = index * minutes
+        %{hour: div(offset, 60), minute: rem(offset, 60)}
+      end)
+    end
   end
 
   def install(options \\ []) do
@@ -208,11 +221,19 @@ defmodule Canaryd.Setup do
     """
   end
 
-  defp schedule_plist(%{interval: interval}) do
-    """
-    <key>StartInterval</key>
-    <integer>#{Duration.to_external(interval, :second)}</integer>
-    """
+  defp schedule_plist(%{calendar: slots}) when is_list(slots) do
+    entries =
+      Enum.map_join(slots, "\n", fn slot ->
+        hour =
+          case Map.fetch(slot, :hour) do
+            {:ok, value} -> "<key>Hour</key><integer>#{value}</integer>"
+            :error -> ""
+          end
+
+        "<dict>#{hour}<key>Minute</key><integer>#{slot.minute}</integer></dict>"
+      end)
+
+    "<key>StartCalendarInterval</key>\n<array>#{entries}</array>\n"
   end
 
   defp schedule_plist(%{calendar: %{hour: hour, minute: minute}}) do

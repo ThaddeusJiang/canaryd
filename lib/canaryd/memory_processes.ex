@@ -7,10 +7,6 @@ defmodule Canaryd.MemoryProcesses do
   and processes without a registered main application are never actionable.
   """
 
-  alias Canaryd.Duration
-
-  @termination_poll Duration.milliseconds(200)
-
   @application_script """
   ObjC.import("AppKit")
 
@@ -34,28 +30,6 @@ defmodule Canaryd.MemoryProcesses do
   }).join("\\n")
   """
 
-  @terminate_script """
-  ObjC.import("AppKit")
-  var app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(%PID%)
-  var expectedBundleId = decodeURIComponent("%BUNDLE_ID%")
-  var expectedBundlePath = decodeURIComponent("%BUNDLE_PATH%")
-
-  if (!ObjC.unwrap(app)) {
-    "stopped"
-  } else {
-    var bundleId = app.bundleIdentifier ? ObjC.unwrap(app.bundleIdentifier) : ""
-    var bundlePath = app.bundleURL ? ObjC.unwrap(app.bundleURL.path) : ""
-
-    if (bundleId !== expectedBundleId || bundlePath !== expectedBundlePath) {
-      "changed"
-    } else if (app.terminate) {
-      "requested"
-    } else {
-      "refused"
-    }
-  }
-  """
-
   @doc "Returns registered third-party apps with aggregate RSS and CPU use."
   def scan do
     with {:ok, uid} <- current_uid(),
@@ -65,18 +39,15 @@ defmodule Canaryd.MemoryProcesses do
          {:ok, process_output} <- cmd("ps", ["-Ao", "pid=,uid=,pcpu=,rss=,command="]) do
       {:ok, parse_processes(process_output, uid, apps)}
     else
-      _ -> {:error, :unavailable}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   @doc false
   def parse_running_apps(output) do
     output
-    |> String.trim()
-    |> case do
-      "" -> {:ok, []}
-      rows -> parse_app_rows(String.split(rows, "\n"))
-    end
+    |> String.split(~r/\r?\n/, trim: true)
+    |> parse_app_rows()
   end
 
   @doc false
@@ -125,34 +96,6 @@ defmodule Canaryd.MemoryProcesses do
     end)
     |> Enum.sort_by(& &1.rss_mb, :desc)
   end
-
-  @doc "Requests a graceful application termination and never escalates to SIGKILL."
-  def close(%{pid: pid, bundle_id: bundle_id, bundle_path: bundle_path})
-      when is_integer(pid) and pid > 0 and is_binary(bundle_id) and is_binary(bundle_path) do
-    script =
-      @terminate_script
-      |> String.replace("%PID%", Integer.to_string(pid))
-      |> String.replace("%BUNDLE_ID%", URI.encode(bundle_id))
-      |> String.replace("%BUNDLE_PATH%", URI.encode(bundle_path))
-
-    case cmd("osascript", ["-l", "JavaScript", "-e", script]) do
-      {:ok, output} ->
-        case String.trim(output) do
-          "stopped" -> :ok
-          "requested" -> wait_for_stop(pid, 10)
-          "changed" -> {:error, :process_identity_changed}
-          "refused" -> {:error, :termination_refused}
-          _ -> {:error, :termination_failed}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    _ -> {:error, :termination_failed}
-  end
-
-  def close(_app), do: {:error, :invalid_app}
 
   defp parse_app_rows(rows) do
     Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, apps} ->
@@ -262,28 +205,10 @@ defmodule Canaryd.MemoryProcesses do
     end
   end
 
-  defp wait_for_stop(_pid, 0), do: {:error, :process_did_not_stop}
-
-  defp wait_for_stop(pid, attempts) do
-    if process_alive?(pid) do
-      Process.sleep(@termination_poll)
-      wait_for_stop(pid, attempts - 1)
-    else
-      :ok
-    end
-  end
-
-  defp process_alive?(pid) do
-    case System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true) do
-      {_output, 0} -> true
-      _ -> false
-    end
-  end
-
   defp cmd(bin, args) do
     case System.cmd(bin, args, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
-      {output, _status} -> {:error, String.trim(output)}
+      {_output, _status} -> {:error, {:command_failed, bin}}
     end
   rescue
     _ -> {:error, :unavailable}

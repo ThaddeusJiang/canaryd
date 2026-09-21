@@ -1,7 +1,7 @@
 defmodule Canaryd.ConfigCLITest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureIO
-  alias Canaryd.{CLI, Config, Setup, Duration}
+  alias Canaryd.{CLI, Config, Setup}
 
   test "config shows flag and environment values without installing anything" do
     output =
@@ -54,14 +54,55 @@ defmodule Canaryd.ConfigCLITest do
              )
 
     [check, clean] = Setup.agent_specs("/tmp/canaryd", config)
-    assert check.interval == Duration.minutes(2)
+    assert check.calendar == Enum.map(0..29, &%{minute: &1 * 2})
     assert clean.calendar == %{hour: 6, minute: 35}
     assert clean.arguments == ["--build-retention", "48h"]
-    assert Setup.agent_plist(check) =~ "<integer>120</integer>"
+    assert Setup.agent_plist(check) =~ "<key>StartCalendarInterval</key>"
+    refute Setup.agent_plist(check) =~ "<key>StartInterval</key>"
     assert Setup.agent_plist(clean) =~ "<string>--build-retention</string>"
     assert Setup.agent_plist(clean) =~ "<string>48h</string>"
     [_, default_clean] = Setup.agent_specs("/tmp/canaryd")
     assert default_clean.arguments == []
+  end
+
+  test "custom calendar preserves uniform spacing across midnight" do
+    for {raw, count, first, last} <- [
+          {"90m", 16, %{hour: 0, minute: 0}, %{hour: 22, minute: 30}},
+          {"2h", 12, %{hour: 0, minute: 0}, %{hour: 22, minute: 0}},
+          {"24h", 1, %{hour: 0, minute: 0}, %{hour: 0, minute: 0}}
+        ] do
+      assert {:ok, config} =
+               Config.resolve([check_interval: raw, build_retention: "24h"], env: %{})
+
+      [check, _] = Setup.agent_specs("/tmp/canaryd", config)
+      assert length(check.calendar) == count
+      assert hd(check.calendar) == first
+      assert List.last(check.calendar) == last
+      assert Setup.agent_plist(check) =~ "<key>Hour</key>"
+      refute Setup.agent_plist(check) =~ "<key>StartInterval</key>"
+    end
+  end
+
+  test "unsupported calendar intervals fail before installation" do
+    for raw <- ["1s", "90s", "7m", "25h"] do
+      assert {:error, _} = Config.resolve([check_interval: raw], env: %{})
+    end
+
+    assert {:ok, _} = Config.resolve([check_interval: "60s", build_retention: "24h"], env: %{})
+  end
+
+  test "manual cleanup ignores unrelated schedule environment settings" do
+    output =
+      capture_io(fn ->
+        CLI.main(["clean", "--build-retention", "48h"],
+          env: %{"CANARYD_CHECK_INTERVAL" => "invalid", "CANARYD_CLEANUP_AT" => "invalid"},
+          ensure_notification_helper: fn -> :ok end,
+          build_cleanup: fn -> {:error, :locked} end,
+          halt: fn _ -> flunk("unrelated settings must not block cleanup") end
+        )
+      end)
+
+    assert output =~ "another build cleanup is running"
   end
 
   test "invalid install settings leave launchd and helper untouched" do
