@@ -8,7 +8,7 @@ defmodule Canaryd.Setup do
   @build_cleanup_label "com.thaddeusjiang.canaryd.build-cleanup"
   @obsolete_agent_labels ["com.thaddeusjiang.canaryd.thermal"]
 
-  alias Canaryd.{NotificationHelper, Paths}
+  alias Canaryd.{Duration, NotificationHelper, Paths}
 
   def label, do: @label
 
@@ -19,35 +19,66 @@ defmodule Canaryd.Setup do
   def obsolete_agent_labels, do: @obsolete_agent_labels
 
   @doc false
-  def agent_specs(escript_path) do
+  def agent_specs(escript_path, config \\ nil) do
+    config = config || Canaryd.Config.defaults()
+
     [
       %{
         label: @label,
         command: "check",
-        calendar: Enum.map(0..11, &%{minute: &1 * 5}),
+        calendar: check_calendar(config.check_interval),
         run_at_load: true,
         escript_path: escript_path
       },
       %{
         label: @build_cleanup_label,
         command: "clean",
-        calendar: %{hour: 4, minute: 0},
+        calendar: config.cleanup_at,
+        arguments:
+          if(config.retention_override,
+            do: [
+              "--build-retention",
+              Canaryd.Config.format(:build_retention, config.build_retention)
+            ],
+            else: []
+          ),
         run_at_load: false,
         escript_path: escript_path
       }
     ]
   end
 
+  defp check_calendar(interval) do
+    minutes = Duration.to_external(interval, :second) |> div(60)
+
+    if rem(60, minutes) == 0 do
+      Enum.map(0..(div(60, minutes) - 1), &%{minute: &1 * minutes})
+    else
+      Enum.map(0..(div(1440, minutes) - 1), fn index ->
+        offset = index * minutes
+        %{hour: div(offset, 60), minute: rem(offset, 60)}
+      end)
+    end
+  end
+
   def install(options \\ []) do
-    agents = configured_agents()
     runner = Keyword.get(options, :runner, &System.cmd/3)
 
     ensure_helper =
       Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
 
-    with :ok <- ensure_helper.(),
+    with {:ok, config} <- resolve_config(options),
+         agents = agent_specs(executable_path(), config),
+         :ok <- ensure_helper.(),
          :ok <- remove_obsolete_agents(runner) do
       install_agents(agents, runner)
+    end
+  end
+
+  defp resolve_config(options) do
+    case Keyword.fetch(options, :config) do
+      {:ok, config} -> {:ok, config}
+      :error -> Canaryd.Config.resolve(options)
     end
   end
 
@@ -173,6 +204,7 @@ defmodule Canaryd.Setup do
       <array>
         <string>#{agent.escript_path}</string>
         <string>#{agent.command}</string>
+        #{Enum.map_join(Map.get(agent, :arguments, []), "\n", &"<string>#{&1}</string>")}
       </array>
       #{schedule_plist(agent)}#{run_at_load_plist(agent)}
       <key>StandardOutPath</key>
@@ -191,8 +223,14 @@ defmodule Canaryd.Setup do
 
   defp schedule_plist(%{calendar: slots}) when is_list(slots) do
     entries =
-      Enum.map_join(slots, "\n", fn %{minute: minute} ->
-        "<dict><key>Minute</key><integer>#{minute}</integer></dict>"
+      Enum.map_join(slots, "\n", fn slot ->
+        hour =
+          case Map.fetch(slot, :hour) do
+            {:ok, value} -> "<key>Hour</key><integer>#{value}</integer>"
+            :error -> ""
+          end
+
+        "<dict>#{hour}<key>Minute</key><integer>#{slot.minute}</integer></dict>"
       end)
 
     "<key>StartCalendarInterval</key>\n<array>#{entries}</array>\n"

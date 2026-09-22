@@ -594,14 +594,50 @@ media under `hyperframes-src/`.
 
 [MIT](./LICENSE)
 
+## CLI configuration
+
+No configuration file is required. Use flags after the command or environment
+variables to override these defaults:
+
+| Setting | Flag | Environment variable | Default |
+| --- | --- | --- | --- |
+| Monitoring interval | `--check-interval` | `CANARYD_CHECK_INTERVAL` | `5m` |
+| Daily cleanup time (local) | `--cleanup-at` | `CANARYD_CLEANUP_AT` | `04:00` |
+| Stale build/cache retention | `--build-retention` | `CANARYD_BUILD_RETENTION` | `24h` |
+
+```sh
+canaryd start --check-interval 2m --cleanup-at 03:30 --build-retention 48h
+CANARYD_CHECK_INTERVAL=10m CANARYD_CLEANUP_AT=05:00 canaryd start
+canaryd clean --build-retention 48h
+canaryd config
+```
+
+Priority is **flags > environment > saved retention > defaults**. The existing
+`canaryd config build-retention 48h` command still saves retention. Schedule
+settings use flags/environment; they do not require a new settings file.
+`canaryd config` shows effective settings for the current invocation, not a
+readback of an already installed background schedule.
+
+`start` (also `install`) writes the selected schedule to launchd. Explicit
+retention overrides are stored in the cleanup job's arguments, so closing the
+terminal does not lose them. Without an explicit override, the job reads the
+saved retention/default on each run. Run `start` again to apply changed schedule
+or environment settings. A plain `start` uses current defaults/environment,
+not values from a previous `start` invocation.
+
+`start` and `config` accept all three flags; `clean` accepts retention only.
+Intervals accept `s`, `m`, or `h` units representing whole minutes that divide 24 hours;
+cleanup time requires `HH:MM` (00:00–23:59); retention accepts whole hours from
+1h through 87600h. Invalid configuration exits with status 2 before side effects.
+Safety checks, locks and active-process protection remain enforced.
+
 ### Sleep and wake behavior
 
-The health-check job uses launchd calendar slots at minutes 0, 5, ..., 55 and
-runs when loaded. Checks missed during sleep coalesce into one check on wake;
-they are not replayed as a backlog. Canaryd does not prevent or schedule a wake
-from system sleep. Display sleep alone does not stop checks. The daily 04:00
-build cleanup retains its existing calendar schedule.
+Health checks use calendar slots and run when loaded. Missed checks coalesce
+into one check on wake, without replaying a backlog. Defaults remain minutes
+0, 5, ..., 55. Canaryd does not wake the Mac or prevent system sleep; display
+sleep alone does not stop checks. Daily cleanup also uses calendar scheduling.
 
-See Apple's [Scheduling Timed Jobs](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html)
-for launchd sleep semantics. The separately proposed configurable schedules in
-PR #37 must preserve calendar-based catch-up when integrated.
+To preserve exact spacing and wake catch-up, check intervals must be whole
+minutes that divide 24 hours (for example 2m, 5m, 90m, 2h, or 24h).
+Sub-minute and non-dividing intervals such as 7m are rejected.

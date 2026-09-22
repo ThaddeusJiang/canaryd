@@ -64,7 +64,7 @@ defmodule Canaryd.BuildCleanup do
     FileLock.with_lock(
       lock_path,
       fn ->
-        with {:ok, retention} <- BuildCleanupConfig.read(home) do
+        with {:ok, retention} <- Canaryd.Config.retention(options, home: home) do
           {:ok, cleanup(home, retention, options)}
         end
       end,
