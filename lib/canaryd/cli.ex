@@ -111,6 +111,17 @@ defmodule Canaryd.CLI do
     dispatch(argv, options)
   end
 
+  defp dispatch(["report" | args], options) do
+    case Canaryd.Report.run(args, Keyword.get(options, :report_reader, &Store.read_events/0)) do
+      {:error, _reason} = error ->
+        Keyword.get(options, :halt, &Elixir.System.halt/1).(2)
+        error
+
+      result ->
+        result
+    end
+  end
+
   defp dispatch([command], options) when command in ["start", "install"] do
     start =
       Keyword.get(options, :start, fn ->
@@ -323,6 +334,7 @@ defmodule Canaryd.CLI do
       canaryd reclaim [--dry-run]  inspect quiet Codex helpers; --dry-run preserves observations
       canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
       canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
+      canaryd report [--json] [--since ISO8601]  summarize/export all recorded events
       canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
       canaryd start [options]    start/update background monitoring (also after login)
       canaryd config [options]   show effective configuration
