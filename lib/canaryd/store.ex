@@ -127,6 +127,66 @@ defmodule Canaryd.Store do
     |> Enum.take(limit)
   end
 
+  @doc "Read all events without migrating or repairing the database. Missing history is empty."
+  def read_events(directory \\ dir()) do
+    path = Path.join(directory, "events.dets")
+
+    if File.dir?(directory) do
+      lockfile = Path.join(directory, "canaryd.lock")
+
+      case File.open(lockfile, [:write, :exclusive]) do
+        {:ok, lock} ->
+          try do
+            read_event_file(path)
+          after
+            File.close(lock)
+            File.rm(lockfile)
+          end
+
+        {:error, :eexist} ->
+          {:error, :locked}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      case File.stat(directory) do
+        {:error, :enoent} -> {:ok, []}
+        {:error, reason} -> {:error, reason}
+        _ -> {:error, :not_a_directory}
+      end
+    end
+  end
+
+  defp read_event_file(path) do
+    case File.stat(path) do
+      {:error, :enoent} ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {:ok, _} ->
+        case :dets.open_file(:canaryd_report_events,
+               file: String.to_charlist(path),
+               type: :set,
+               access: :read,
+               repair: false
+             ) do
+          {:ok, table} ->
+            try do
+              {:ok,
+               :dets.foldl(fn {_key, event}, acc -> [normalize_event(event) | acc] end, [], table)}
+            after
+              :dets.close(table)
+            end
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+    end
+  end
+
   defp mark_duration_unit(:skipped_idle, %{idle_duration: _duration} = details) do
     Map.put(details, :duration_unit, :millisecond)
   end
