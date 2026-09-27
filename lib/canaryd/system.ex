@@ -76,7 +76,7 @@ defmodule Canaryd.System do
         true -> :normal
       end
 
-    warnings = sampling_warnings
+    warnings = []
     warnings = if throttled, do: ["CPU thermal throttling active" | warnings], else: warnings
 
     warnings = chip_temperature_warnings(warnings, chip_temperatures)
@@ -84,10 +84,13 @@ defmodule Canaryd.System do
     warnings =
       if load_pressure,
         do: [
-          "load1 #{Float.round(load1, 2)} >= #{Float.round(cores * @load_factor_warn, 1)} (#{cores} cores)"
+          "load1 #{Float.round(load1, 2)} > #{Float.round(cores * @load_factor_warn, 1)} (#{cores} cores)"
           | warnings
         ],
         else: warnings
+
+    pressure_warnings = warnings
+    warnings = pressure_warnings ++ sampling_warnings
 
     warnings =
       if is_number(mem_free) and mem_free < 10,
@@ -105,6 +108,8 @@ defmodule Canaryd.System do
       temperature_source: if(is_nil(temperature_error), do: :macmon, else: :unavailable),
       temperature_error: temperature_error,
       thermal_pressure: thermal_pressure,
+      chip_temperature_pressure: chip_temperature_pressure,
+      pressure_warnings: pressure_warnings,
       thermal_status: thermal_status,
       mem_free_pct: mem_free,
       warnings: warnings,
@@ -133,6 +138,18 @@ defmodule Canaryd.System do
     ["CPU/GPU temperature unavailable", battery_temperature_summary(system.battery_temperature_c)]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("; ")
+  end
+
+  @doc "Formats a pressure notification with its actual trigger and sensor readings."
+  def pressure_notification(system) do
+    title =
+      cond do
+        system.throttled == true -> "Mac thermal throttling warning"
+        system.chip_temperature_pressure -> "Mac temperature warning"
+        true -> "Mac high load warning"
+      end
+
+    {title, "#{Enum.join(system.pressure_warnings, "; ")}\n#{temperature_summary(system)}"}
   end
 
   @doc false

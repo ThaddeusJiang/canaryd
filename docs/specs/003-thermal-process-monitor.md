@@ -31,8 +31,8 @@ Ask the user to close, restart, or ignore one safe app candidate.
 
 - `ThermalMonitor`
   - `observations`: Consecutive observations for each process identity.
-  - `alerts`: The last warning notification time for each process identity.
-  - `prompts`: The last prompt time for each process identity.
+  - `alerts`: Shared warning cooldown across all process identities; preserve recent legacy entries during upgrades.
+  - `prompts`: The last prompt time for each process identity, with a shared prompt cooldown.
   - `ignored`: The last ignore time for each process identity.
 - `Event`
   - Use the existing DETS event store.
@@ -58,13 +58,13 @@ Ask the user to close, restart, or ignore one safe app candidate.
 15. Send a notification on the first thermal-pressure observation.
 16. Do not activate an app or show a foreground dialog.
 17. Keep the warning in Notification Center until the user dismisses it.
-18. Apply a 15-minute warning notification cooldown for each leading process.
+18. Apply the existing 15-minute warning cooldown across all candidates, including changing protected PIDs. Update one persistent `canaryd.system-pressure` notification instead of adding cards.
 19. Confirm the same leading actionable process in two consecutive check rounds.
 20. Show at most one actionable notification per check round.
-21. Show the CPU and GPU temperature, the leading process, and up to four other high-CPU suspects.
+21. Name the actual trigger in the warning and action titles: high load, high temperature, or CPU thermal throttling. Show the trigger values, CPU/GPU readings, the leading process, and up to four other high-CPU candidates; CPU usage is correlation evidence.
 22. Show Close and Restart actions in the notification.
 23. Treat dismiss or timeout as Ignore.
-24. Apply a one-hour prompt cooldown after any choice.
+24. Apply the existing one-hour prompt cooldown across candidates after any choice, without suppressing informational reminders after the warning cooldown. Replace the informational pressure warning with the confirmed app action; action request identifiers remain unique.
 25. Close only the selected process.
 26. Restart by closing the selected process and opening the same app bundle.
 27. Log warning delivery, choice, success, and failure.
@@ -75,11 +75,31 @@ Ask the user to close, restart, or ignore one safe app candidate.
 32. Use the shared store lock to prevent concurrent check rounds.
 33. Include `/usr/sbin` and `/sbin` in the launchd environment so system tools such as `sysctl` remain available without an interactive shell.
 34. Preserve failed or invalid load samples as unavailable; never substitute zero load or one CPU core. Missing load, chip temperature, or throttling data makes the thermal summary unavailable unless another valid signal already establishes high pressure. Include the unavailable metric in warnings so system health cannot silently report success.
+35. Report pressure even when no process crosses the CPU threshold. An empty candidate list breaks consecutive app confirmation without resetting the warning cooldown.
+36. Preserve system health state and event history while suppressing its duplicate load/temperature/throttling notifications. Memory and unavailable-sampling warnings remain independently visible.
 
 CPU usage is correlation evidence.
 It is not proof of exact heat contribution.
 
 ## BDD Scenarios
+
+### BDD-06 Report the actual cause and coalesce pressure warnings
+
+Given:
+- CPU/GPU temperatures remain below the warning threshold while load is high.
+- High-CPU candidates change between check rounds.
+
+Then:
+- The notification title says `Mac high load warning` and includes the load value and threshold.
+- High temperature and throttling use their own titles, retaining concurrent load evidence.
+- Candidate changes share the warning and prompt cooldowns.
+- Reminder delivery updates one informational card. A confirmed action removes that card but uses a unique action identity.
+- Pressure without high-CPU candidates is still reported.
+- System-health events remain intact without a second pressure notification; unrelated failures remain visible.
+
+Acceptance evidence:
+- `SystemThermalTest`, `ThermalMonitorTest`, `NotifierTest`, `CheckerPressureTest`, `NotificationHelperTest`.
+- Swift helper type check; live Notification Center replacement remains pending user acceptance.
 
 ### BDD-05 Detect load under launchd and report unavailable samples
 
@@ -187,6 +207,7 @@ Acceptance Evidence:
 
 | Scenario | Status | Evidence | Notes |
 | --- | --- | --- | --- |
+| BDD-06 | partial | 48 targeted regression tests; Swift helper type check | Cause-specific content, shared cooldowns, legacy-state compatibility, and duplicate suppression passed. Live Notification Center replacement has not been tested. |
 | BDD-01 | passed | `Canaryd.SystemThermalTest`, `Canaryd.NotifierTest`, `Canaryd.NotificationHelperTest`, Swift type check, signed helper install, live persistent warning run | Available temperatures use `°C`. Unavailable battery temperature is omitted. The warning had no removal event after 35 seconds. The action notification returned Ignore after dismiss or timeout. |
 | BDD-02 | passed | `Canaryd.ThermalMonitorTest` full test run | Pending observations clear after heat ends. |
 | BDD-03 | passed | `Canaryd.ThermalMonitorTest` full test run | Protected processes do not get actions. |

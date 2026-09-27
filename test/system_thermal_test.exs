@@ -12,6 +12,34 @@ defmodule Canaryd.SystemThermalTest do
     assert [%{pid: 42}] = system.hot_processes
   end
 
+  test "load-only notification names the cause below the temperature threshold" do
+    {title, body} = System.pressure_notification(sample())
+    assert title == "Mac high load warning"
+    assert body =~ "load1 37.03 > 8.0 (10 cores)"
+    assert body =~ "CPU 64.0°C"
+  end
+
+  test "temperature notification retains concurrent load evidence" do
+    {title, body} = System.pressure_notification(sample(%{}, 75.0))
+    assert title == "Mac temperature warning"
+    assert body =~ "CPU temperature 75.0°C"
+    assert body =~ "load1 37.03 > 8.0 (10 cores)"
+  end
+
+  test "throttling notification names throttling when sensors are unavailable" do
+    system = sample(%{{"pmset", ["-g", "therm"]} => {:ok, "CPU_Speed_Limit = 80"}}, :unavailable)
+    {title, body} = System.pressure_notification(system)
+    assert title == "Mac thermal throttling warning"
+    assert body =~ "CPU thermal throttling active"
+    assert body =~ "CPU/GPU temperature unavailable"
+  end
+
+  test "unrelated memory warnings do not become pressure triggers" do
+    system = sample(%{{"memory_pressure", []} => {:ok, "System-wide memory free percentage: 5%"}})
+    assert "memory free 5%" in system.warnings
+    refute "memory free 5%" in system.pressure_warnings
+  end
+
   test "failed or invalid load samples are unavailable rather than zero or healthy" do
     for {metric, result} <- [
           {"vm.loadavg", {:error, :unavailable}},
