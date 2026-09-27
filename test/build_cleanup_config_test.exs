@@ -6,8 +6,7 @@ defmodule Canaryd.BuildCleanupConfigTest do
   setup do
     home = Path.join("/private/tmp", "canaryd-config-#{System.unique_integer([:positive])}")
 
-    path =
-      Path.join([home, "Library", "Application Support", "canaryd", "build-cleanup-retention"])
+    path = Path.join([home, "Library", "Application Support", "canaryd", "config.conf"])
 
     on_exit(fn -> File.rm_rf!(home) end)
     %{home: home, path: path}
@@ -23,11 +22,11 @@ defmodule Canaryd.BuildCleanupConfigTest do
     for {input, expected} <- [{"1h", 1}, {"48", 48}, {"87600h", 87_600}] do
       assert BuildCleanupConfig.set(input, context.home) == {:ok, Duration.hours(expected)}
       assert BuildCleanupConfig.read(context.home) == {:ok, Duration.hours(expected)}
-      assert File.read!(context.path) == "#{expected}h\n"
+      assert File.read!(context.path) == "build-retention=#{expected}h\n"
       assert BuildCleanupConfig.format(Duration.hours(expected)) == "#{expected}h"
     end
 
-    assert File.ls!(Path.dirname(context.path)) == ["build-cleanup-retention"]
+    assert File.ls!(Path.dirname(context.path)) == ["config.conf"]
   end
 
   test "invalid input leaves the prior value untouched", context do
@@ -47,19 +46,24 @@ defmodule Canaryd.BuildCleanupConfigTest do
           nil
         ] do
       assert BuildCleanupConfig.set(input, context.home) == {:error, :invalid_retention}
-      assert File.read!(context.path) == "48h\n"
+      assert File.read!(context.path) == "build-retention=48h\n"
     end
   end
 
   test "corrupt, empty, and oversized files fail closed", context do
     File.mkdir_p!(Path.dirname(context.path))
 
-    for contents <- ["", "invalid", "0h", "87601h", <<255>>] do
+    for contents <- [
+          "build-retention=",
+          "build-retention=invalid",
+          "build-retention=0h",
+          "build-retention=87601h"
+        ] do
       File.write!(context.path, contents)
       assert BuildCleanupConfig.read(context.home) == {:error, :invalid_retention}
     end
 
-    File.write!(context.path, "24h" <> String.duplicate(" ", 62))
+    File.write!(context.path, "build-retention=24h" <> String.duplicate(" ", 16_384))
     assert BuildCleanupConfig.read(context.home) == {:error, :config_too_large}
   end
 
@@ -71,7 +75,7 @@ defmodule Canaryd.BuildCleanupConfigTest do
     assert BuildCleanupConfig.read(context.home) == {:error, :invalid_config_file}
     assert {:error, _reason} = BuildCleanupConfig.set("48h", context.home)
     assert File.read!(marker) == "original"
-    assert File.ls!(Path.dirname(context.path)) == ["build-cleanup-retention"]
+    assert File.ls!(Path.dirname(context.path)) == ["config.conf"]
   end
 
   test "unreadable configuration returns an error without falling back", context do

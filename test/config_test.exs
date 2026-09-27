@@ -40,6 +40,20 @@ defmodule Canaryd.ConfigTest do
     assert {:ok, _} = Config.resolve([check_interval: "1m"], options)
   end
 
+  test "saved schedules reach launchd and flags retain priority", c do
+    assert {:ok, _} = Canaryd.PolicyConfig.set("check-interval", "10m", c.home)
+    assert {:ok, _} = Canaryd.PolicyConfig.set("cleanup-time", "05:30", c.home)
+    assert {:ok, config} = Config.resolve([], c.options)
+    assert config.check_interval == Duration.minutes(10)
+    assert config.cleanup_at == %{hour: 5, minute: 30}
+    assert [check, cleanup] = Canaryd.Setup.agent_specs("/tmp/canaryd", config)
+    assert length(check.calendar) == 6
+    assert cleanup.calendar == %{hour: 5, minute: 30}
+    assert {:ok, config} = Config.resolve([check_interval: "2m", cleanup_at: "23:45"], c.options)
+    assert config.check_interval == Duration.minutes(2)
+    assert config.cleanup_at == %{hour: 23, minute: 45}
+  end
+
   test "rejects invalid values without side effects", c do
     for overrides <- [
           [check_interval: "0s"],

@@ -6,25 +6,26 @@ defmodule Canaryd.CodexProcessMonitor do
   Initialized execution kernels are protected by the process scanner.
   """
 
-  alias Canaryd.Duration
-
-  @minimum_idle Duration.minutes(30)
-  @minimum_spacing Duration.minutes(5)
-  @maximum_gap Duration.minutes(10)
-  @required_observations 3
+  alias Canaryd.PolicyConfig
 
   def default_state, do: %{observations: %{}}
 
   @doc "Evaluates one scan; timestamps are Unix milliseconds across CLI invocations."
-  def evaluate(state, processes, idle_duration, now \\ System.system_time(:millisecond)) do
+  def evaluate(
+        state,
+        processes,
+        idle_duration,
+        now \\ System.system_time(:millisecond),
+        policy \\ PolicyConfig.defaults()
+      ) do
     candidates = processes |> Enum.uniq_by(& &1.id) |> Enum.filter(&eligible?(&1, idle_duration))
     previous = Map.get(state, :observations, %{})
 
     Enum.reduce(candidates, {default_state(), []}, fn process, {next_state, actions} ->
-      observation = observe(Map.get(previous, process.id), process, now)
+      observation = observe(Map.get(previous, process.id), process, now, policy)
 
-      if observation.count >= @required_observations and
-           now - observation.quiet_since >= @minimum_idle do
+      if observation.count >= policy.codex_confirmations and
+           now - observation.quiet_since >= policy.codex_min_idle do
         {next_state, [{:quiet, process} | actions]}
       else
         next_state = put_in(next_state, [:observations, process.id], observation)
@@ -64,16 +65,16 @@ defmodule Canaryd.CodexProcessMonitor do
     |> Enum.sort_by(&{&1.name, &1.pid})
   end
 
-  def minimum_idle, do: @minimum_idle
-  def required_observations, do: @required_observations
+  def minimum_idle, do: PolicyConfig.defaults().codex_min_idle
+  def required_observations, do: PolicyConfig.defaults().codex_confirmations
 
-  defp observe(previous, process, now) do
+  defp observe(previous, process, now, policy) do
     case previous do
       %{process: old, last_seen: last_seen, counted_at: counted_at} = observation
-      when now >= last_seen and now - last_seen <= @maximum_gap ->
+      when now >= last_seen and now - last_seen <= policy.codex_max_gap ->
         if Map.take(old, [:id, :ppid, :cpu_time]) ==
              Map.take(process, [:id, :ppid, :cpu_time]) do
-          spaced = now - counted_at >= @minimum_spacing
+          spaced = now - counted_at >= policy.codex_min_spacing
 
           %{
             observation

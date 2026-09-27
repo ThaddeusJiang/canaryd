@@ -11,11 +11,11 @@ defmodule Canaryd.StateMachine do
     * probe fail, restart on cooldown, failures >= 3 -> :blocked (notify once)
   """
 
-  alias Canaryd.Duration
+  alias Canaryd.{Duration, PolicyConfig}
 
-  @restart_cooldown Duration.hours(1)
+  def transition(state, result, now, policy \\ PolicyConfig.defaults())
 
-  def transition(state, :ok, now) do
+  def transition(state, :ok, now, _policy) do
     action =
       if state.consecutive_failures > 0 or state.status == :blocked, do: :recovered, else: :none
 
@@ -30,9 +30,9 @@ defmodule Canaryd.StateMachine do
     {new, action}
   end
 
-  def transition(state, :fail, now) do
+  def transition(state, :fail, now, policy) do
     failures = state.consecutive_failures + 1
-    cooldown_over = restart_allowed?(state.last_restart_at, now)
+    cooldown_over = restart_allowed?(state.last_restart_at, now, policy)
 
     cond do
       state.status == :blocked and not cooldown_over ->
@@ -47,7 +47,7 @@ defmodule Canaryd.StateMachine do
              updated_at: now
          }, :restart}
 
-      failures >= 3 ->
+      failures >= policy.cleanclip_failure_confirmations ->
         {%{
            state
            | last_probe: :fail,
@@ -61,12 +61,12 @@ defmodule Canaryd.StateMachine do
     end
   end
 
-  defp restart_allowed?(nil, _now), do: true
+  defp restart_allowed?(nil, _now, _policy), do: true
 
-  defp restart_allowed?(last, now) do
-    Duration.between(now, last) >= @restart_cooldown
+  defp restart_allowed?(last, now, policy) do
+    Duration.between(now, last) >= policy.cleanclip_restart_cooldown
   end
 
   @doc "Restart cooldown in milliseconds."
-  def restart_cooldown, do: @restart_cooldown
+  def restart_cooldown, do: PolicyConfig.defaults().cleanclip_restart_cooldown
 end

@@ -3,9 +3,7 @@ defmodule Canaryd.UnresponsiveMonitor do
   Pure confirmation and cooldown policy for unresponsive GUI apps.
   """
 
-  alias Canaryd.Duration
-
-  @restart_cooldown Duration.hours(1)
+  alias Canaryd.{Duration, PolicyConfig}
 
   def default_state do
     %{
@@ -20,7 +18,7 @@ defmodule Canaryd.UnresponsiveMonitor do
 
   Actions are `{:detected, app, count}`, `{:restart, app}`, or `{:blocked, app}`.
   """
-  def evaluate(state, apps, now) do
+  def evaluate(state, apps, now, policy \\ PolicyConfig.defaults()) do
     state = normalize_state(state, now)
     apps = Enum.uniq_by(apps, & &1.id)
     active_ids = MapSet.new(apps, & &1.id)
@@ -32,7 +30,7 @@ defmodule Canaryd.UnresponsiveMonitor do
     }
 
     Enum.reduce(apps, {state, []}, fn app, {current_state, actions} ->
-      {next_state, action} = observe(current_state, app, now)
+      {next_state, action} = observe(current_state, app, now, policy)
       next_actions = if is_nil(action), do: actions, else: [action | actions]
       {next_state, next_actions}
     end)
@@ -57,20 +55,20 @@ defmodule Canaryd.UnresponsiveMonitor do
   end
 
   @doc "Restart cooldown in milliseconds."
-  def restart_cooldown, do: @restart_cooldown
+  def restart_cooldown, do: PolicyConfig.defaults().unresponsive_restart_cooldown
 
-  defp observe(state, app, now) do
+  defp observe(state, app, now, policy) do
     previous_count = get_in(state, [:observations, app.id, :count]) || 0
     count = previous_count + 1
 
     cond do
-      count < 2 ->
+      count < policy.unresponsive_confirmations ->
         observation = %{app: app, count: count}
 
         {%{state | observations: Map.put(state.observations, app.id, observation)},
          {:detected, app, count}}
 
-      restart_allowed?(state, app.id, now) ->
+      restart_allowed?(state, app.id, now, policy) ->
         next_state = %{
           state
           | observations: Map.delete(state.observations, app.id),
@@ -97,10 +95,10 @@ defmodule Canaryd.UnresponsiveMonitor do
     end
   end
 
-  defp restart_allowed?(state, id, now) do
+  defp restart_allowed?(state, id, now, policy) do
     case Map.get(state.restarts, id) do
       nil -> true
-      last_restart -> Duration.between(now, last_restart) >= @restart_cooldown
+      last_restart -> Duration.between(now, last_restart) >= policy.unresponsive_restart_cooldown
     end
   end
 

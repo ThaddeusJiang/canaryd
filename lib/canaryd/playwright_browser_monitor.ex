@@ -6,14 +6,14 @@ defmodule Canaryd.PlaywrightBrowserMonitor do
   for three consecutive full check rounds. Whole-Mac user idle is not required.
   """
 
-  @required_observations 3
+  alias Canaryd.PolicyConfig
 
   def default_state do
     %{observations: %{}}
   end
 
   @doc "Evaluates one scan and returns `{new_state, actions}`."
-  def evaluate(state, browsers, automation_active) do
+  def evaluate(state, browsers, automation_active, policy \\ PolicyConfig.defaults()) do
     state = normalize_state(state)
 
     candidates =
@@ -27,7 +27,7 @@ defmodule Canaryd.PlaywrightBrowserMonitor do
     state = %{state | observations: Map.take(state.observations, MapSet.to_list(active_ids))}
 
     Enum.reduce(candidates, {state, []}, fn browser, {current_state, actions} ->
-      {next_state, action} = observe(current_state, browser)
+      {next_state, action} = observe(current_state, browser, policy)
       {next_state, [action | actions]}
     end)
     |> then(fn {new_state, actions} -> {new_state, Enum.reverse(actions)} end)
@@ -44,14 +44,14 @@ defmodule Canaryd.PlaywrightBrowserMonitor do
     |> Enum.sort_by(&{&1.name, &1.pid})
   end
 
-  def required_observations, do: @required_observations
+  def required_observations, do: PolicyConfig.defaults().playwright_confirmations
 
-  defp observe(state, browser) do
+  defp observe(state, browser, policy) do
     previous = Map.get(state.observations, browser.id)
     previous_count = if previous, do: previous.count, else: 0
     count = previous_count + 1
 
-    if count >= @required_observations do
+    if count >= policy.playwright_confirmations do
       next_state = %{state | observations: Map.delete(state.observations, browser.id)}
       {next_state, {:terminate, browser}}
     else

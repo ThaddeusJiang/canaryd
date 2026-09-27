@@ -5,7 +5,7 @@ defmodule Canaryd.ThermalMonitor do
   Process CPU usage is correlation evidence. It is not exact power attribution.
   """
 
-  alias Canaryd.Duration
+  alias Canaryd.{Duration, PolicyConfig}
 
   def default_state do
     %{observations: %{}, alerts: %{}, prompts: %{}}
@@ -17,7 +17,7 @@ defmodule Canaryd.ThermalMonitor do
   Actions are `{:alert, process, suspects}`, `{:choose, process, suspects}`,
   or `{:report, suspects}`.
   """
-  def evaluate(state, thermal_pressure, suspects, now) do
+  def evaluate(state, thermal_pressure, suspects, now, policy \\ PolicyConfig.defaults()) do
     state = normalize_state(state, now)
     suspects = Enum.take(suspects, 5)
 
@@ -26,23 +26,23 @@ defmodule Canaryd.ThermalMonitor do
         {%{state | observations: %{}}, []}
 
       actionable = Enum.find(suspects, & &1.actionable) ->
-        observe_actionable(state, actionable, suspects, now)
+        observe_actionable(state, actionable, suspects, now, policy)
 
       true ->
-        report_protected(state, suspects, now)
+        report_protected(state, suspects, now, policy)
     end
   end
 
-  defp observe_actionable(state, process, suspects, now) do
-    if prompt_allowed?(state, process.id, now) do
+  defp observe_actionable(state, process, suspects, now, policy) do
+    if prompt_allowed?(state, process.id, now, policy) do
       previous_count = get_in(state, [:observations, process.id, :count]) || 0
       count = previous_count + 1
 
-      if count < 2 do
+      if count < policy.thermal_confirmations do
         observation = %{process: process, count: count}
         next_state = %{state | observations: %{process.id => observation}}
 
-        if alert_allowed?(state, process.id, now) do
+        if alert_allowed?(state, process.id, now, policy) do
           next_state = %{next_state | alerts: Map.put(state.alerts, process.id, now)}
           {next_state, [{:alert, process, suspects}]}
         else
@@ -62,11 +62,11 @@ defmodule Canaryd.ThermalMonitor do
     end
   end
 
-  defp report_protected(state, suspects, now) do
+  defp report_protected(state, suspects, now, policy) do
     process = hd(suspects)
     next_state = %{state | observations: %{reported: %{at: now}}}
 
-    if alert_allowed?(state, process.id, now) do
+    if alert_allowed?(state, process.id, now, policy) do
       next_state = %{next_state | alerts: Map.put(state.alerts, process.id, now)}
       {next_state, [{:report, suspects}]}
     else
@@ -74,17 +74,17 @@ defmodule Canaryd.ThermalMonitor do
     end
   end
 
-  defp alert_allowed?(state, id, now) do
+  defp alert_allowed?(state, id, now, policy) do
     case Map.get(state.alerts, id) do
       nil -> true
-      alerted_at -> Duration.between(now, alerted_at) >= Duration.minutes(15)
+      alerted_at -> Duration.between(now, alerted_at) >= policy.thermal_alert_cooldown
     end
   end
 
-  defp prompt_allowed?(state, id, now) do
+  defp prompt_allowed?(state, id, now, policy) do
     case Map.get(state.prompts, id) do
       nil -> true
-      prompted_at -> Duration.between(now, prompted_at) >= Duration.hours(1)
+      prompted_at -> Duration.between(now, prompted_at) >= policy.thermal_prompt_cooldown
     end
   end
 

@@ -1,15 +1,17 @@
-defmodule Canaryd.BuildCleanupConfig do
+defmodule Canaryd.DiskPressureConfig do
   @moduledoc false
 
-  alias Canaryd.{ConfigFile, Duration, Paths}
+  alias Canaryd.{ConfigFile, Paths}
 
+  @gib 1_024 * 1_024 * 1_024
+  @default_gib 20
+  @max_gib 1_024
   @max_size 64
-  @max_value 87_600
 
-  def default_retention, do: Duration.hours(24)
+  def default_bytes, do: @default_gib * @gib
 
   def read(home \\ Paths.home_dir()) do
-    case ConfigFile.get("build-retention", home) do
+    case ConfigFile.get("storage-threshold", home) do
       {:ok, value} -> parse(value)
       :missing -> read_legacy(home)
       error -> error
@@ -17,23 +19,23 @@ defmodule Canaryd.BuildCleanupConfig do
   end
 
   def set(value, home \\ Paths.home_dir()) do
-    with {:ok, retention} <- parse(value),
-         :ok <- ConfigFile.put("build-retention", format(retention), home) do
-      {:ok, retention}
+    with {:ok, bytes} <- parse(value),
+         :ok <- ConfigFile.put("storage-threshold", format(bytes), home) do
+      {:ok, bytes}
     end
   end
 
-  def format(retention), do: "#{div(retention, Duration.hours(1))}h"
+  def format(bytes), do: "#{div(bytes, @gib)}G"
 
   defp config_path(home) do
-    Path.join([home, "Library", "Application Support", "canaryd", "build-cleanup-retention"])
+    Path.join([home, "Library", "Application Support", "canaryd", "storage-threshold"])
   end
 
   defp read_legacy(home) do
     path = config_path(home)
 
     case File.lstat(path) do
-      {:error, :enoent} -> {:ok, default_retention()}
+      {:error, :enoent} -> {:ok, default_bytes()}
       {:ok, %{type: :regular}} -> read_file(path)
       {:ok, _stat} -> {:error, :invalid_config_file}
       {:error, reason} -> {:error, reason}
@@ -53,7 +55,7 @@ defmodule Canaryd.BuildCleanupConfig do
          :ok <- check_size(device) do
       parse(value)
     else
-      :eof -> {:error, :invalid_retention}
+      :eof -> {:error, :invalid_threshold}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -68,19 +70,18 @@ defmodule Canaryd.BuildCleanupConfig do
     end
   end
 
-  @doc false
-  def parse(value) when is_binary(value) and byte_size(value) <= @max_size do
-    case Regex.run(~r/\A([0-9]+)h?\z/, String.trim(value)) do
+  defp parse(value) when is_binary(value) and byte_size(value) <= @max_size do
+    case Regex.run(~r/\A([0-9]+)G\z/, String.trim(value)) do
       [_, number] ->
         case String.to_integer(number) do
-          value when value in 1..@max_value -> {:ok, Duration.hours(value)}
-          _value -> {:error, :invalid_retention}
+          gib when gib in 1..@max_gib -> {:ok, gib * @gib}
+          _value -> {:error, :invalid_threshold}
         end
 
       _match ->
-        {:error, :invalid_retention}
+        {:error, :invalid_threshold}
     end
   end
 
-  def parse(_value), do: {:error, :invalid_retention}
+  defp parse(_value), do: {:error, :invalid_threshold}
 end

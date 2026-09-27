@@ -4,13 +4,16 @@ defmodule Canaryd.CLI do
   alias Canaryd.{
     BuildCleanup,
     BuildCleanupConfig,
+    ConfigFile,
     Checker,
     CodexProcessMonitor,
+    DiskPressureConfig,
     Duration,
     MemoryMonitor,
     NotificationHelper,
     Paths,
     PlaywrightBrowserMonitor,
+    PolicyConfig,
     SimulatorMonitor,
     Setup,
     Store,
@@ -37,7 +40,8 @@ defmodule Canaryd.CLI do
   defp configure(argv, options), do: run_command(argv, options)
 
   defp configure_options(command, rest, argv, options) do
-    if command == "config" and match?(["build-retention" | _], rest) do
+    if command == "config" and
+         (rest in [[], ["--path"]] or match?(["build-retention" | _], rest)) do
       run_command(argv, options)
     else
       {overrides, positional, invalid} =
@@ -148,10 +152,16 @@ defmodule Canaryd.CLI do
 
     case reclaimer.(dry_run: flags == ["--dry-run"]) do
       %{status: :available} = result ->
+        policy =
+          case PolicyConfig.read_all() do
+            {:ok, values} -> values
+            {:error, _reason} -> PolicyConfig.defaults()
+          end
+
         IO.puts("Codex helpers: #{result.detected}, protected: #{result.protected}")
 
         Enum.each(result.processes, fn process ->
-          IO.puts("  #{process.name} (PID #{process.pid}): #{reclaim_status(process)}")
+          IO.puts("  #{process.name} (PID #{process.pid}): #{reclaim_status(process, policy)}")
         end)
 
         IO.puts(
@@ -160,6 +170,9 @@ defmodule Canaryd.CLI do
 
       {:error, :locked} ->
         IO.puts("another check is running, skipping")
+
+      {:error, reason} ->
+        IO.puts("reclaim unavailable: #{inspect(reason)}")
 
       %{status: :unavailable, reason: reason} ->
         IO.puts("process scan unavailable: #{inspect(reason)}")
@@ -202,6 +215,66 @@ defmodule Canaryd.CLI do
     |> print_build_retention()
   end
 
+  defp dispatch(["config", "storage-threshold"], options) do
+    options
+    |> Keyword.get(:home, Paths.home_dir())
+    |> DiskPressureConfig.read()
+    |> print_storage_threshold()
+  end
+
+  defp dispatch(["config", "storage-threshold", value], options) do
+    value
+    |> DiskPressureConfig.set(Keyword.get(options, :home, Paths.home_dir()))
+    |> print_storage_threshold()
+  end
+
+  defp dispatch(["config", "--path"], options) do
+    IO.puts(ConfigFile.path(Keyword.get(options, :home, Paths.home_dir())))
+  end
+
+  defp dispatch(["config"], options) do
+    case PolicyConfig.read_all(Keyword.get(options, :home, Paths.home_dir())) do
+      {:ok, policy} ->
+        home = Keyword.get(options, :home, Paths.home_dir())
+
+        case BuildCleanupConfig.read(home) do
+          {:ok, retention} -> IO.puts("build-retention=#{BuildCleanupConfig.format(retention)}")
+          {:error, reason} -> IO.puts("build-retention unavailable: #{inspect(reason)}")
+        end
+
+        case DiskPressureConfig.read(home) do
+          {:ok, threshold} -> IO.puts("storage-threshold=#{DiskPressureConfig.format(threshold)}")
+          {:error, reason} -> IO.puts("storage-threshold unavailable: #{inspect(reason)}")
+        end
+
+        Enum.each(PolicyConfig.keys(), fn key ->
+          IO.puts(
+            "#{PolicyConfig.name(key)}=#{PolicyConfig.format(key, policy[key])} (#{PolicyConfig.description(key)})"
+          )
+        end)
+
+      {:error, reason} ->
+        IO.puts("config failed: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch(["config", name], options) do
+    case PolicyConfig.key(name) do
+      nil ->
+        IO.puts("unknown config key: #{name}")
+
+      key ->
+        key
+        |> PolicyConfig.read(Keyword.get(options, :home, Paths.home_dir()))
+        |> print_policy_value(key)
+    end
+  end
+
+  defp dispatch(["config", name, value], options) do
+    PolicyConfig.set(name, value, Keyword.get(options, :home, Paths.home_dir()))
+    |> print_policy_value(PolicyConfig.key(name))
+  end
+
   defp dispatch(argv, _options), do: dispatch(argv)
 
   defp dispatch([command]) when command in ["--version", "version"] do
@@ -213,11 +286,15 @@ defmodule Canaryd.CLI do
       {:error, :locked} ->
         IO.puts("another check is running, skipping")
 
+      {:error, reason} ->
+        IO.puts("check unavailable: #{inspect(reason)}")
+
       {:checked, _idle, sys, cc, apps} ->
         IO.puts(
           "cleanclip: #{cc.probe} (#{cc.action}), failures=#{cc.failures}; " <>
             "system warnings: #{inspect(sys.warnings)}; #{thermal_summary(sys)}; " <>
-            "#{memory_summary(sys)}; #{simulator_summary(sys)}; " <>
+            "#{storage_summary(sys)}; #{memory_summary(sys)}; " <>
+            "#{build_process_summary(sys)}; #{simulator_summary(sys)}; " <>
             "#{codex_process_summary(sys)}; #{playwright_browser_summary(sys)}"
         )
 
@@ -230,14 +307,72 @@ defmodule Canaryd.CLI do
       {:error, :locked} ->
         IO.puts("another check is running, skipping")
 
+      {:error, reason} ->
+        IO.puts("thermal check unavailable: #{inspect(reason)}")
+
       {:thermal_checked, system} ->
         IO.puts(thermal_summary(system))
     end
   end
 
   defp dispatch(["status"]) do
+    case PolicyConfig.read_all() do
+      {:ok, policy} -> show_status(policy)
+      {:error, reason} -> IO.puts("status unavailable: #{inspect(reason)}")
+    end
+  end
+
+  defp dispatch(["history"]), do: dispatch(["history", "cleanclip"])
+
+  defp dispatch(["history", target]) do
+    Store.with_tables(fn _state, events ->
+      events
+      |> Store.list_events(history_target(target), 50)
+      |> Enum.each(fn e ->
+        details = Map.drop(e, [:target, :type, :at])
+
+        IO.puts(
+          "#{fmt(e.at)}  #{e.type}#{if map_size(details) > 0, do: "  #{inspect(details)}", else: ""}"
+        )
+      end)
+    end)
+  end
+
+  defp dispatch(_argv) do
+    IO.puts("""
+    canaryd - Mac health monitor
+
+    usage:
+      canaryd check              run one check round (launchd does this every 5 min)
+      canaryd thermal-check      run one thermal check now
+      canaryd status             current health snapshot
+      canaryd reclaim [--dry-run]  inspect quiet Codex helpers; --dry-run preserves observations
+      canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
+      canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
+      canaryd config storage-threshold [NG]  show or set Data-volume cleanup threshold (default: 20G, range: 1G..1024G)
+      canaryd config               list all decision thresholds
+      canaryd config --path        print the editable config file path
+      canaryd config <key> [value]  show or set one threshold (e.g. swap-min-growth 768M)
+      canaryd report [--json] [--since ISO8601]  summarize/export all recorded events
+      canaryd history [target]   event timeline (cleanclip, system, storage, thermal, memory, simulators, codex, playwright, builds, apps)
+      canaryd start [options]    start/update background monitoring (also after login)
+      canaryd stop               stop background monitoring until the next start
+      canaryd --version          show the installed version
+
+      --check-interval 5m        monitoring interval (whole minutes dividing 24h; units: s, m, h)
+      --cleanup-at 04:00         daily cleanup time (local HH:MM)
+      --build-retention 24h      cache retention (1h..87600h)
+
+      start/config accept all options; clean accepts --build-retention.
+      Environment: CANARYD_CHECK_INTERVAL, CANARYD_CLEANUP_AT, CANARYD_BUILD_RETENTION.
+      Priority: flags > environment > saved settings > defaults.
+      Run start again to apply schedule changes; no configuration file is required.
+    """)
+  end
+
+  defp show_status(policy) do
     idle = System.idle_duration()
-    current_system = System.check()
+    current_system = System.check(policy: policy)
 
     Store.with_tables(fn state, events ->
       for target <- [:cleanclip, :system] do
@@ -304,63 +439,21 @@ defmodule Canaryd.CLI do
 
     IO.puts("\ncleanclip process alive: #{CleanClip.process_alive?()}")
     IO.puts("user idle: #{Duration.to_external(idle, :second)}s")
+    IO.puts(storage_summary(current_system))
     IO.puts(thermal_summary(current_system))
   end
 
-  defp dispatch(["history"]), do: dispatch(["history", "cleanclip"])
-
-  defp dispatch(["history", target]) do
-    Store.with_tables(fn _state, events ->
-      events
-      |> Store.list_events(history_target(target), 50)
-      |> Enum.each(fn e ->
-        details = Map.drop(e, [:target, :type, :at])
-
-        IO.puts(
-          "#{fmt(e.at)}  #{e.type}#{if map_size(details) > 0, do: "  #{inspect(details)}", else: ""}"
-        )
-      end)
-    end)
+  defp reclaim_status(%{status: :detected, quiet_duration: quiet}, policy) do
+    "observing (#{div(quiet, Duration.minutes(1))}/#{div(policy.codex_min_idle, Duration.minutes(1))} min quiet)"
   end
 
-  defp dispatch(_argv) do
-    IO.puts("""
-    canaryd - Mac health monitor
+  defp reclaim_status(%{status: :quiet}, _policy), do: "kept: quiet, session ownership unknown"
+  defp reclaim_status(%{reason: :working_children}, _policy), do: "kept: has child processes"
 
-    usage:
-      canaryd check              run one check round (launchd does this every 5 min)
-      canaryd thermal-check      run one thermal check now
-      canaryd status             current health snapshot
-      canaryd reclaim [--dry-run]  inspect quiet Codex helpers; --dry-run preserves observations
-      canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
-      canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
-      canaryd report [--json] [--since ISO8601]  summarize/export all recorded events
-      canaryd history [target]   event timeline (cleanclip, system, thermal, memory, simulators, codex, playwright, builds, apps)
-      canaryd start [options]    start/update background monitoring (also after login)
-      canaryd config [options]   show effective configuration
+  defp reclaim_status(%{reason: :session_activity_unknown}, _policy),
+    do: "kept: session activity unknown"
 
-      --check-interval 5m        monitoring interval (whole minutes dividing 24h; units: s, m, h)
-      --cleanup-at 04:00         daily cleanup time (local HH:MM)
-      --build-retention 24h      cache retention (1h..87600h)
-
-      start/config accept all options; clean accepts --build-retention.
-      Environment: CANARYD_CHECK_INTERVAL, CANARYD_CLEANUP_AT, CANARYD_BUILD_RETENTION.
-      Priority: flags > environment > saved retention > defaults.
-      Run start again to apply schedule changes; no configuration file is required.
-      canaryd stop               stop background monitoring until the next start
-      canaryd --version          show the installed version
-    """)
-  end
-
-  defp reclaim_status(%{status: :detected, quiet_duration: quiet}) do
-    "observing (#{div(quiet, Duration.minutes(1))}/30 min quiet)"
-  end
-
-  defp reclaim_status(%{status: :quiet}), do: "kept: quiet, session ownership unknown"
-  defp reclaim_status(%{reason: :working_children}), do: "kept: has child processes"
-  defp reclaim_status(%{reason: :session_activity_unknown}), do: "kept: session activity unknown"
-
-  defp reclaim_status(_), do: "kept: activity unavailable"
+  defp reclaim_status(_, _policy), do: "kept: activity unavailable"
 
   defp print_build_retention({:ok, retention}) do
     IO.puts("build retention: #{BuildCleanupConfig.format(retention)}")
@@ -368,6 +461,23 @@ defmodule Canaryd.CLI do
 
   defp print_build_retention({:error, reason}) do
     IO.puts("build retention failed: #{inspect(reason)}; expected 1h..87600h")
+  end
+
+  defp print_storage_threshold({:ok, bytes}) do
+    IO.puts("storage threshold: #{DiskPressureConfig.format(bytes)}")
+  end
+
+  defp print_storage_threshold({:error, reason}) do
+    IO.puts("storage threshold failed: #{inspect(reason)}; expected 1G..1024G")
+  end
+
+  defp print_policy_value({:ok, value}, key) do
+    IO.puts("#{PolicyConfig.name(key)}=#{PolicyConfig.format(key, value)}")
+  end
+
+  defp print_policy_value({:error, reason}, key) do
+    label = if key, do: PolicyConfig.name(key), else: "config"
+    IO.puts("#{label} failed: #{inspect(reason)}")
   end
 
   defp app_check_summary(%{status: :available, detected: detected, actions: actions}) do
@@ -415,12 +525,30 @@ defmodule Canaryd.CLI do
   end
 
   defp memory_summary(%{memory_monitor: %{status: :available} = monitor}) do
-    "high-memory apps=#{monitor.detected}, actions=#{inspect(monitor.actions)}"
+    swap =
+      case Map.get(monitor, :swap_monitor) do
+        %{status: :available, actions: actions} -> "swap actions=#{inspect(actions)}"
+        _ -> "swap unavailable"
+      end
+
+    "high-memory apps=#{monitor.detected}, actions=#{inspect(monitor.actions)}, #{swap}"
   end
 
   defp memory_summary(%{memory_monitor: %{status: :unavailable, reason: reason}}) do
     "memory scan unavailable: #{inspect(reason)}"
   end
+
+  defp storage_summary(%{disk_usage: %{used_percent: used_percent, available_bytes: available}}) do
+    "Data volume: #{used_percent}% used, #{Canaryd.Disk.format_bytes(available)} available"
+  end
+
+  defp storage_summary(_system), do: "Data volume: unavailable"
+
+  defp build_process_summary(%{build_process_monitor: %{status: :available} = monitor}) do
+    "detached build processes=#{monitor.detached}, actions=#{inspect(monitor.actions)}"
+  end
+
+  defp build_process_summary(_system), do: "detached build process scan unavailable"
 
   defp simulator_summary(%{simulator_monitor: %{status: :skipped_foreground}}) do
     "idle Simulator scan: Simulator is in the foreground"
@@ -494,6 +622,7 @@ defmodule Canaryd.CLI do
 
   defp history_target("cleanclip"), do: :cleanclip
   defp history_target("system"), do: :system
+  defp history_target(target) when target in ["storage", "disk"], do: :storage
   defp history_target("thermal"), do: :thermal
   defp history_target("memory"), do: :memory
   defp history_target(target) when target in ["simulator", "simulators"], do: :simulators

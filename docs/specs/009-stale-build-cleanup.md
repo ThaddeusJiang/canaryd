@@ -81,10 +81,11 @@ archives, developer credentials, Simulator data, or active build artifacts.
 
 The default retention is 24 hours. `canaryd config build-retention` shows the
 effective value; `canaryd config build-retention 48h` saves a new duration.
-Values are positive whole hours from `1h` to `87600h` (ten years), stored as
-duration text in `~/Library/Application Support/canaryd/build-cleanup-retention`.
-The file is read with a 64-byte limit and replaced atomically when settings
-change. A missing file uses the default; malformed, oversized or unreadable
+Values are positive whole hours from `1h` to `87600h` (ten years), stored in
+`~/Library/Application Support/canaryd/config.conf` as `build-retention=48h`.
+The old `build-cleanup-retention` file is read with a 64-byte limit only when
+the shared file lacks this key. Settings are replaced atomically. A missing
+setting uses the default; malformed, oversized or unreadable
 configuration stops cleanup before process inspection or candidate deletion.
 Read the setting once per round under the cleanup lock and freeze that round's
 cutoff. A setting changed during cleanup applies to the next round, without

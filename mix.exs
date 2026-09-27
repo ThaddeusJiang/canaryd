@@ -34,7 +34,7 @@ defmodule Canaryd.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger]] ++ application_module()
+    [extra_applications: [:logger, :crypto]] ++ application_module()
   end
 
   defp deps do

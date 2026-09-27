@@ -7,14 +7,7 @@ defmodule Canaryd.MemoryMonitor do
   reported; memory use does not establish that their work can be discarded.
   """
 
-  alias Canaryd.Duration
-
-  @memory_threshold_mb 1_024.0
-  @cpu_threshold 1.0
-  @minimum_spacing Duration.minutes(5)
-  @maximum_gap Duration.minutes(10)
-  @required_observations 3
-  @alert_cooldown Duration.hours(1)
+  alias Canaryd.{Duration, PolicyConfig}
 
   def default_state do
     %{
@@ -24,16 +17,16 @@ defmodule Canaryd.MemoryMonitor do
   end
 
   @doc "Evaluates one scan and returns `{new_state, actions}`."
-  def evaluate(state, apps, _idle_duration, now) do
+  def evaluate(state, apps, _idle_duration, now, policy \\ PolicyConfig.defaults()) do
     state = normalize_state(state, now)
 
-    candidates = apps |> Enum.filter(&candidate?/1) |> Enum.uniq_by(& &1.id)
+    candidates = apps |> Enum.filter(&candidate?(&1, policy)) |> Enum.uniq_by(& &1.id)
 
     active_ids = MapSet.new(candidates, & &1.id)
     state = %{state | observations: Map.take(state.observations, MapSet.to_list(active_ids))}
 
     Enum.reduce(candidates, {state, []}, fn app, {current_state, actions} ->
-      {next_state, action} = observe(current_state, app, now)
+      {next_state, action} = observe(current_state, app, now, policy)
       next_actions = if is_nil(action), do: actions, else: [action | actions]
       {next_state, next_actions}
     end)
@@ -56,17 +49,17 @@ defmodule Canaryd.MemoryMonitor do
     |> Enum.sort_by(& &1.rss_mb, :desc)
   end
 
-  def candidate?(app) do
-    app.actionable and app.rss_mb >= @memory_threshold_mb and
-      app.cpu_percent <= @cpu_threshold
+  def candidate?(app, policy \\ PolicyConfig.defaults()) do
+    app.actionable and app.rss_mb >= policy.memory_rss and
+      app.cpu_percent <= policy.memory_cpu
   end
 
-  def memory_threshold_mb, do: @memory_threshold_mb
-  def cpu_threshold, do: @cpu_threshold
-  def required_observations, do: @required_observations
-  def alert_cooldown, do: @alert_cooldown
+  def memory_threshold_mb, do: PolicyConfig.defaults().memory_rss * 1.0
+  def cpu_threshold, do: PolicyConfig.defaults().memory_cpu
+  def required_observations, do: PolicyConfig.defaults().memory_confirmations
+  def alert_cooldown, do: PolicyConfig.defaults().memory_alert_cooldown
 
-  defp observe(state, app, now) do
+  defp observe(state, app, now, policy) do
     previous = Map.get(state.observations, app.id)
 
     {count, counted_at} =
@@ -76,8 +69,8 @@ defmodule Canaryd.MemoryMonitor do
           gap = Duration.between(now, last_seen)
 
           cond do
-            gap < 0 or gap > @maximum_gap -> {1, now}
-            Duration.between(now, counted_at) >= @minimum_spacing -> {count + 1, now}
+            gap < 0 or gap > policy.memory_max_gap -> {1, now}
+            Duration.between(now, counted_at) >= policy.memory_min_spacing -> {count + 1, now}
             true -> {count, counted_at}
           end
 
@@ -85,7 +78,7 @@ defmodule Canaryd.MemoryMonitor do
           {1, now}
       end
 
-    if count >= @required_observations and alert_allowed?(state, app.id, now) do
+    if count >= policy.memory_confirmations and alert_allowed?(state, app.id, now, policy) do
       next_state = %{
         state
         | observations: Map.delete(state.observations, app.id),
@@ -96,15 +89,15 @@ defmodule Canaryd.MemoryMonitor do
     else
       observation = %{app: app, count: count, last_seen: now, counted_at: counted_at}
       next_state = %{state | observations: Map.put(state.observations, app.id, observation)}
-      action = if count < @required_observations, do: {:detected, app, count}, else: nil
+      action = if count < policy.memory_confirmations, do: {:detected, app, count}, else: nil
       {next_state, action}
     end
   end
 
-  defp alert_allowed?(state, id, now) do
+  defp alert_allowed?(state, id, now, policy) do
     case Map.get(state.alerts, id) do
       nil -> true
-      last_alert -> Duration.between(now, last_alert) >= @alert_cooldown
+      last_alert -> Duration.between(now, last_alert) >= policy.memory_alert_cooldown
     end
   end
 
