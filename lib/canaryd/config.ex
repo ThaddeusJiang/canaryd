@@ -1,6 +1,6 @@
 defmodule Canaryd.Config do
-  @moduledoc "Validated CLI settings: flags, environment, saved retention, then defaults."
-  alias Canaryd.{BuildCleanupConfig, Duration, Paths}
+  @moduledoc "Validated CLI settings: flags, environment, saved settings, then defaults."
+  alias Canaryd.{BuildCleanupConfig, Duration, Paths, PolicyConfig}
 
   @switches [check_interval: :string, cleanup_at: :string, build_retention: :string]
   def switches, do: @switches
@@ -14,12 +14,13 @@ defmodule Canaryd.Config do
     }
 
   def resolve(overrides \\ [], options \\ []) do
-    with {:ok, interval} <-
+    with {:ok, policy} <- PolicyConfig.read_all(Keyword.get(options, :home, Paths.home_dir())),
+         {:ok, interval} <-
            value(
              :check_interval,
              overrides,
              options,
-             format(:check_interval, defaults().check_interval),
+             format(:check_interval, Duration.minutes(policy.check_interval)),
              &parse_interval/1
            ),
          {:ok, calendar} <-
@@ -27,7 +28,7 @@ defmodule Canaryd.Config do
              :cleanup_at,
              overrides,
              options,
-             format(:cleanup_at, defaults().cleanup_at),
+             PolicyConfig.format(:cleanup_time, policy.cleanup_time),
              &parse_calendar/1
            ),
          {:ok, retention} <- retention(overrides, options) do

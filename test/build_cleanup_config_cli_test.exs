@@ -31,10 +31,10 @@ defmodule Canaryd.BuildCleanupConfigCLITest do
         "Library",
         "Application Support",
         "canaryd",
-        "build-cleanup-retention"
+        "config.conf"
       ])
 
-    assert File.read!(path) == "48h\n"
+    assert File.read!(path) == "build-retention=48h\n"
   end
 
   test "reports invalid retention without replacing the user's setting", context do
@@ -55,10 +55,10 @@ defmodule Canaryd.BuildCleanupConfigCLITest do
         "Library",
         "Application Support",
         "canaryd",
-        "build-cleanup-retention"
+        "config.conf"
       ])
 
-    File.write!(path, "corrupt")
+    File.write!(path, "build-retention=corrupt\n")
 
     output = command([], context.options)
     assert output =~ "build retention failed:"
