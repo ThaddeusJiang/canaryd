@@ -8,7 +8,7 @@ defmodule Canaryd.Setup do
   @build_cleanup_label "com.thaddeusjiang.canaryd.build-cleanup"
   @obsolete_agent_labels ["com.thaddeusjiang.canaryd.thermal"]
 
-  alias Canaryd.{Duration, NotificationHelper, Paths}
+  alias Canaryd.{Duration, NotificationHelper, Paths, PolicyConfig}
 
   def label, do: @label
 
@@ -67,7 +67,8 @@ defmodule Canaryd.Setup do
     ensure_helper =
       Keyword.get(options, :ensure_notification_helper, &NotificationHelper.ensure_installed/0)
 
-    with {:ok, config} <- resolve_config(options),
+    with {:ok, _policy} <- PolicyConfig.read_all(Keyword.get(options, :home, Paths.home_dir())),
+         {:ok, config} <- resolve_config(options),
          agents = agent_specs(executable_path(), config),
          :ok <- ensure_helper.(),
          :ok <- remove_obsolete_agents(runner) do
@@ -78,7 +79,7 @@ defmodule Canaryd.Setup do
   defp resolve_config(options) do
     case Keyword.fetch(options, :config) do
       {:ok, config} -> {:ok, config}
-      :error -> Canaryd.Config.resolve(options)
+      :error -> Canaryd.Config.resolve(options, options)
     end
   end
 
@@ -110,9 +111,7 @@ defmodule Canaryd.Setup do
   end
 
   def uninstall do
-    configured_agents()
-    |> Enum.map(& &1.label)
-    |> Kernel.++(@obsolete_agent_labels)
+    (@obsolete_agent_labels ++ labels())
     |> remove_agents(&System.cmd/3)
 
     NotificationHelper.remove()
@@ -165,8 +164,6 @@ defmodule Canaryd.Setup do
   end
 
   defp log_dir, do: Canaryd.Store.dir()
-
-  defp configured_agents, do: agent_specs(executable_path())
 
   @doc false
   def executable_path(

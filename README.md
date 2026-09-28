@@ -269,9 +269,60 @@ canaryd config build-retention 24h   # use the default duration again
 ```
 
 The setting accepts whole hours from `1h` to `87600h` and is saved per user in
-`~/Library/Application Support/canaryd/build-cleanup-retention`. Both scheduled
+the shared `config.conf` file described below. Both scheduled
 and manual cleanup read it at the start of each round; no restart is required.
 An invalid or unreadable configuration stops that round with an error.
+
+Set the Data-volume free-space threshold for automatic guarded cleanup:
+
+```sh
+canaryd config storage-threshold        # show the current threshold (default: 20G)
+canaryd config storage-threshold 30G    # start cleanup below 30 GiB available
+```
+
+`G` means GiB (1,024³ bytes). Whole values from `1G` to `1024G` are accepted
+and saved in the shared `config.conf` file.
+Each health check reads the current value, so no restart is required. Invalid
+or unreadable settings stop pressure-triggered cleanup until corrected.
+
+All other decision thresholds are configurable too. List their current values,
+then change one by its printed key:
+
+```sh
+canaryd config                              # list all decision thresholds
+canaryd config --path                       # print the editable config file path
+canaryd config swap-min-growth              # show one value (default: 512M)
+canaryd config swap-min-growth 768M         # require 768 MiB of swap growth
+canaryd config system-chip-temperature 75C  # warn at 75°C instead of 70°C
+canaryd config memory-rss 2048M             # high-memory alert threshold
+canaryd config storage-cleanup-cooldown 90m # wait 90 minutes between pressure cleanups
+canaryd config cleanup-time 05:30           # local daily cleanup time
+```
+
+You can also edit the per-user text file printed by `canaryd config --path`
+(`~/Library/Application Support/canaryd/config.conf`). Use one `key=value` per
+line; blank lines and lines beginning with `#` are allowed:
+
+```text
+# Free space on the Data volume before guarded cleanup
+storage-threshold=20G
+swap-min-growth=768M
+build-retention=24h
+check-interval=5m
+cleanup-time=05:30
+```
+
+The displayed units are `G` (GiB), `M` (MiB), `h` (hours), `m` (minutes),
+`C` (°C), `%`, plain counts, and `HH:MM` for local cleanup time. CLI changes
+update this same file and preserve other entries and comments. A value in
+`config.conf` takes precedence over the earlier individual setting file; if a
+key is absent, Canaryd reads its old file if present, otherwise uses its
+default. Old files are not deleted. Unknown or duplicate keys and malformed
+files fail closed; invalid policy values stop the check before automatic
+actions. Monitoring reads settings at the start of each round. Changing
+`check-interval` or `cleanup-time` also requires `canaryd start` to refresh
+the launchd schedule. Canaryd rejects a check interval that cannot fit its
+confirmation windows.
 
 <!-- readme-video:start -->
 <p align="center">
@@ -434,9 +485,11 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
 | `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
+| `canaryd config storage-threshold [30G]` | Show or save the Data-volume cleanup threshold; defaults to 20 GiB |
+| `canaryd config [key [value]]` | List, show, or save the other monitoring, notification, automatic-action, and schedule thresholds |
 | `canaryd reclaim [--dry-run]` | Inspect quiet Codex helpers; dry run preserves observations; no Codex termination |
 | `canaryd report [--json] [--since ISO8601]` | Summarize or export all recorded events for statistics and AI analysis |
-| `canaryd history [target]` | Show events for `cleanclip`, `system`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
+| `canaryd history [target]` | Show events for `cleanclip`, `system`, `storage`, `thermal`, `memory`, `simulators`, `codex`, `playwright`, `builds`, or `apps` |
 | `canaryd start` | Start background monitoring, including after login |
 | `canaryd stop` | Stop background monitoring until the next `start`; keep saved state and logs |
 | `canaryd --version` | Show the installed version without changing the launchd agents |
@@ -447,6 +500,7 @@ Examples:
 
 ```sh
 canaryd check
+canaryd history storage
 canaryd history thermal
 canaryd history memory
 canaryd history simulators
@@ -482,6 +536,15 @@ The shared safety rules are:
   protected from general automatic actions.
 - A newer user clipboard write always wins over CleanClip probe restoration.
 - High-memory applications receive alerts only; Canaryd does not terminate them.
+- Data-volume pressure below the configured free-space threshold (default 20 GiB)
+  starts only the existing fail-closed build cleanup, with a one-hour cooldown. It never
+  broadens cleanup to model caches, Docker volumes, source, active worktrees,
+  or arbitrary user files.
+- Swap growth is a global signal. Canaryd reports related high-RSS applications
+  after sustained growth but does not claim per-process causation or terminate
+  them automatically.
+- Detached Cargo/Clang build processes are reported after repeated observations.
+  Canaryd does not stop them automatically.
 - Simulator recovery never runs `erase`, `delete`, `reset`, or `shutdown all`.
 - Whole-Mac keyboard and pointer activity does not reset Simulator inactivity.
 - Active current-user `xcodebuild` and `xctest` processes block Simulator
@@ -516,7 +579,8 @@ The shared safety rules are:
   and test evidence outside validated build directories are retained.
 - Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,
   Simulator data, Cargo registry or git caches, installed binaries, or source.
-- App restart, prompt, and close actions use one-hour cooldowns.
+- App restart, prompt, and close actions use configurable cooldowns (one hour
+  by default).
 - Automatic termination can still interrupt background work or expose an
   unsaved-changes prompt.
 
@@ -528,6 +592,8 @@ For exact behavior, see the maintained feature specifications:
 - [Idle memory process monitor](./docs/specs/007-idle-memory-process-monitor.md)
 - [Idle Simulator shutdown](./docs/specs/008-idle-simulator-shutdown.md)
 - [Stale build cleanup](./docs/specs/009-stale-build-cleanup.md)
+- [Storage pressure and process observation](./docs/specs/013-storage-pressure-and-process-observation.md)
+- [Configurable decision thresholds](./docs/specs/014-configurable-decision-thresholds.md)
 - [Idle Codex process cleanup](./docs/specs/010-idle-codex-process-cleanup.md)
 - [Leftover Playwright Chrome cleanup](./docs/specs/011-idle-playwright-chrome-cleanup.md)
 
@@ -652,20 +718,21 @@ variables to override these defaults:
 canaryd start --check-interval 2m --cleanup-at 03:30 --build-retention 48h
 CANARYD_CHECK_INTERVAL=10m CANARYD_CLEANUP_AT=05:00 canaryd start
 canaryd clean --build-retention 48h
-canaryd config
+canaryd config --check-interval 5m
 ```
 
-Priority is **flags > environment > saved retention > defaults**. The existing
-`canaryd config build-retention 48h` command still saves retention. Schedule
-settings use flags/environment; they do not require a new settings file.
-`canaryd config` shows effective settings for the current invocation, not a
-readback of an already installed background schedule.
+Priority is **flags > environment > saved settings > defaults**. Persistent
+`check-interval`, `cleanup-time`, and `build-retention` settings use the shared
+config file described above. Bare `canaryd config` lists saved/default policy
+values; `canaryd config --check-interval 5m` shows effective CLI settings for
+that invocation, not an already installed background schedule. `cleanup-time`
+is the persistent key corresponding to `--cleanup-at`.
 
 `start` (also `install`) writes the selected schedule to launchd. Explicit
 retention overrides are stored in the cleanup job's arguments, so closing the
 terminal does not lose them. Without an explicit override, the job reads the
 saved retention/default on each run. Run `start` again to apply changed schedule
-or environment settings. A plain `start` uses current defaults/environment,
+or environment settings. A plain `start` uses current saved settings/environment,
 not values from a previous `start` invocation.
 
 `start` and `config` accept all three flags; `clean` accepts retention only.

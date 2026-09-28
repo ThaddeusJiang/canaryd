@@ -1,7 +1,7 @@
 defmodule Canaryd.SystemThermalTest do
   use ExUnit.Case, async: true
 
-  alias Canaryd.System
+  alias Canaryd.{PolicyConfig, System}
 
   test "high load triggers thermal monitoring below the temperature threshold" do
     system = sample()
@@ -38,6 +38,25 @@ defmodule Canaryd.SystemThermalTest do
     system = sample(%{{"memory_pressure", []} => {:ok, "System-wide memory free percentage: 5%"}})
     assert "memory free 5%" in system.warnings
     refute "memory free 5%" in system.pressure_warnings
+  end
+
+  test "configured temperature, load and suspect CPU thresholds change the live classification" do
+    low_load = %{{"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 1.0 1.0 1.0 }"}}
+
+    policy = %{
+      PolicyConfig.defaults()
+      | system_chip_temperature: 60.0,
+        system_hot_process_cpu: 90.0
+    }
+
+    system = sample(low_load, 65.0, policy: policy)
+    assert system.thermal_pressure
+    assert system.hot_processes == []
+
+    policy = %{policy | system_chip_temperature: 80.0, system_load_factor: 0.05}
+    system = sample(low_load, 65.0, policy: policy)
+    assert system.thermal_pressure
+    assert Enum.any?(system.warnings, &String.contains?(&1, "load1"))
   end
 
   test "failed or invalid load samples are unavailable rather than zero or healthy" do
@@ -92,7 +111,58 @@ defmodule Canaryd.SystemThermalTest do
     assert Canaryd.CLI.thermal_summary(system) =~ "thermal pressure: normal"
   end
 
-  defp sample(overrides \\ %{}, temperature \\ 64.0) do
+  test "includes disk and swap samples when supplied" do
+    system =
+      sample(
+        %{{"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 1.0 1.0 1.0 }"}},
+        64.0,
+        disk_sampler: fn -> {:ok, %{used_percent: 96, available_bytes: 4_000}} end,
+        swap_sampler: fn -> {:ok, %{total_bytes: 10, used_bytes: 8, free_bytes: 2}} end
+      )
+
+    assert system.disk_usage.used_percent == 96
+    assert system.swap_usage.used_bytes == 8
+    assert "disk available 3.9 KB" in system.warnings
+  end
+
+  test "disk warning uses the configured available-space threshold" do
+    options = [
+      disk_sampler: fn ->
+        {:ok, %{used_percent: 96, available_bytes: 15 * 1_024 * 1_024 * 1_024}}
+      end
+    ]
+
+    normal_load = %{{"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 1.0 1.0 1.0 }"}}
+
+    below_threshold =
+      sample(
+        normal_load,
+        64.0,
+        Keyword.put(options, :disk_threshold, {:ok, 10 * 1_024 * 1_024 * 1_024})
+      )
+
+    refute Enum.any?(below_threshold.warnings, &String.starts_with?(&1, "disk available"))
+
+    under_pressure =
+      sample(
+        normal_load,
+        64.0,
+        Keyword.put(options, :disk_threshold, {:ok, 20 * 1_024 * 1_024 * 1_024})
+      )
+
+    assert "disk available 15.0 GB" in under_pressure.warnings
+
+    invalid =
+      sample(
+        normal_load,
+        64.0,
+        Keyword.put(options, :disk_threshold, {:error, :invalid_threshold})
+      )
+
+    assert "storage threshold unavailable: :invalid_threshold" in invalid.warnings
+  end
+
+  defp sample(overrides \\ %{}, temperature \\ 64.0, options \\ []) do
     responses = %{
       {"sysctl", ["-n", "hw.ncpu"]} => {:ok, "10\n"},
       {"sysctl", ["-n", "vm.loadavg"]} => {:ok, "{ 37.03 35.0 26.0 }"},
@@ -111,7 +181,11 @@ defmodule Canaryd.SystemThermalTest do
         if temperature == :unavailable,
           do: {:error, :unavailable},
           else: {:ok, %{cpu_temperature_c: temperature, gpu_temperature_c: temperature}}
-      end
+      end,
+      disk_sampler: Keyword.get(options, :disk_sampler, fn -> {:error, :unavailable} end),
+      swap_sampler: Keyword.get(options, :swap_sampler, fn -> {:error, :unavailable} end),
+      disk_threshold: Keyword.get(options, :disk_threshold, {:ok, 20 * 1_024 * 1_024 * 1_024}),
+      policy: Keyword.get(options, :policy, PolicyConfig.defaults())
     )
   end
 

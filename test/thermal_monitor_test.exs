@@ -1,7 +1,7 @@
 defmodule Canaryd.ThermalMonitorTest do
   use ExUnit.Case, async: true
 
-  alias Canaryd.{Duration, ThermalMonitor}
+  alias Canaryd.{Duration, PolicyConfig, ThermalMonitor}
 
   @t0 ~U[2026-07-27 00:00:00Z]
 
@@ -30,6 +30,32 @@ defmodule Canaryd.ThermalMonitorTest do
 
     {state, []} = ThermalMonitor.evaluate(state, true, [second], later(300))
     {_state, [{:report, [^second]}]} = ThermalMonitor.evaluate(state, true, [second], later(900))
+  end
+
+  test "configured cooldowns apply across different processes" do
+    policy = %{
+      PolicyConfig.defaults()
+      | thermal_alert_cooldown: Duration.minutes(1),
+        thermal_prompt_cooldown: Duration.minutes(20)
+    }
+
+    first = app(%{id: "rustc:42", actionable: false})
+    second = app(%{id: "rustc:43", actionable: false})
+
+    {state, [{:report, _}]} =
+      ThermalMonitor.evaluate(ThermalMonitor.default_state(), true, [first], @t0, policy)
+
+    {state, []} = ThermalMonitor.evaluate(state, true, [second], later(30), policy)
+
+    {_state, [{:report, [^second]}]} =
+      ThermalMonitor.evaluate(state, true, [second], later(60), policy)
+
+    state = %{ThermalMonitor.default_state() | prompts: %{"prior" => @t0}}
+    {state, [{:report, _}]} = ThermalMonitor.evaluate(state, true, [app()], later(300), policy)
+    {state, [{:alert, _, _}]} = ThermalMonitor.evaluate(state, true, [app()], later(1200), policy)
+
+    {_state, [{:choose, _, _}]} =
+      ThermalMonitor.evaluate(state, true, [app()], later(1500), policy)
   end
 
   test "changing actionable apps shares the warning and prompt cooldowns" do

@@ -12,19 +12,26 @@ defmodule Canaryd.Checker do
   """
 
   alias Canaryd.{
+    BuildCleanup,
+    BuildProcessMonitor,
+    BuildProcesses,
     CodexProcessMonitor,
     CodexProcesses,
+    DiskPressureConfig,
+    DiskPressureMonitor,
     Duration,
     MemoryMonitor,
     MemoryProcesses,
     Notifier,
     PlaywrightBrowserMonitor,
     PlaywrightBrowsers,
+    PolicyConfig,
     SimulatorMonitor,
     Simulators,
     StateMachine,
     Store,
     System,
+    SwapMonitor,
     ThermalMonitor,
     UnresponsiveMonitor
   }
@@ -32,42 +39,53 @@ defmodule Canaryd.Checker do
   alias Canaryd.Apps.{CleanClip, Unresponsive}
 
   def run do
-    Store.with_tables(fn state, events ->
-      idle = System.idle_duration()
-      sys = System.check()
-      record_system(state, events, sys)
-      thermal_monitor = check_thermal_processes(state, events, sys)
-      memory_monitor = check_memory_processes(state, events)
-      simulator_monitor = check_idle_simulators(state, events)
-      codex_process_monitor = check_idle_codex_processes(state, events, idle)
-      playwright_browser_monitor = check_idle_playwright_browsers(state, events)
+    with {:ok, policy} <- PolicyConfig.read_all() do
+      Store.with_tables(fn state, events ->
+        idle = System.idle_duration()
+        sys = System.check(policy: policy)
+        record_system(state, events, sys, policy: policy)
+        storage_monitor = check_disk_pressure(state, events, sys, policy: policy)
+        thermal_monitor = check_thermal_processes(state, events, sys, policy)
 
-      sys =
-        sys
-        |> Map.put(:thermal_monitor, thermal_monitor)
-        |> Map.put(:memory_monitor, memory_monitor)
-        |> Map.put(:simulator_monitor, simulator_monitor)
-        |> Map.put(:codex_process_monitor, codex_process_monitor)
-        |> Map.put(:playwright_browser_monitor, playwright_browser_monitor)
+        memory_monitor =
+          check_memory_processes(state, events, swap_usage: sys.swap_usage, policy: policy)
 
-      app_monitor = check_unresponsive_apps(state, events)
+        build_process_monitor = check_build_processes(state, events, policy: policy)
+        simulator_monitor = check_idle_simulators(state, events, policy)
+        codex_process_monitor = check_idle_codex_processes(state, events, idle, policy: policy)
+        playwright_browser_monitor = check_idle_playwright_browsers(state, events, policy)
 
-      cleanclip = check_cleanclip(state, events)
-      {:checked, idle, sys, cleanclip, app_monitor}
-    end)
+        sys =
+          sys
+          |> Map.put(:storage_monitor, storage_monitor)
+          |> Map.put(:thermal_monitor, thermal_monitor)
+          |> Map.put(:memory_monitor, memory_monitor)
+          |> Map.put(:build_process_monitor, build_process_monitor)
+          |> Map.put(:simulator_monitor, simulator_monitor)
+          |> Map.put(:codex_process_monitor, codex_process_monitor)
+          |> Map.put(:playwright_browser_monitor, playwright_browser_monitor)
+
+        app_monitor = check_unresponsive_apps(state, events, policy)
+
+        cleanclip = check_cleanclip(state, events, policy: policy)
+        {:checked, idle, sys, cleanclip, app_monitor}
+      end)
+    end
   end
 
   @doc "Runs only the temperature and thermal process checks."
   def run_thermal do
-    Store.with_tables(fn state, events ->
-      sys = System.check()
-      thermal_monitor = check_thermal_processes(state, events, sys)
+    with {:ok, policy} <- PolicyConfig.read_all() do
+      Store.with_tables(fn state, events ->
+        sys = System.check(policy: policy)
+        thermal_monitor = check_thermal_processes(state, events, sys, policy)
 
-      {:thermal_checked, Map.put(sys, :thermal_monitor, thermal_monitor)}
-    end)
+        {:thermal_checked, Map.put(sys, :thermal_monitor, thermal_monitor)}
+      end)
+    end
   end
 
-  defp check_thermal_processes(state, events, sys) do
+  defp check_thermal_processes(state, events, sys, policy) do
     monitor_state =
       Store.get_value(state, :thermal_processes, ThermalMonitor.default_state())
 
@@ -76,7 +94,8 @@ defmodule Canaryd.Checker do
         monitor_state,
         sys.thermal_pressure,
         sys.hot_processes,
-        DateTime.utc_now()
+        DateTime.utc_now(),
+        policy
       )
 
     Store.put_state(state, :thermal_processes, new_monitor_state)
@@ -171,6 +190,79 @@ defmodule Canaryd.Checker do
     Map.take(process, [:id, :name, :pid, :cpu_percent, :bundle_path])
   end
 
+  @doc false
+  def check_disk_pressure(state, events, sys, options \\ []) do
+    monitor_state =
+      Store.get_value(state, :disk_pressure, DiskPressureMonitor.default_state())
+
+    cleaner = Keyword.get(options, :cleaner, &BuildCleanup.run/0)
+    notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
+    now = Keyword.get(options, :now, DateTime.utc_now())
+    usage = Map.get(sys, :disk_usage)
+
+    threshold_result =
+      case Map.fetch(sys, :disk_threshold) do
+        {:ok, result} -> result
+        :error -> DiskPressureConfig.read()
+      end
+
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
+
+    case threshold_result do
+      {:ok, threshold_bytes} ->
+        {new_state, actions} =
+          DiskPressureMonitor.evaluate(monitor_state, usage, now, threshold_bytes, policy)
+
+        Store.put_state(state, :disk_pressure, new_state)
+        results = Enum.map(actions, &run_disk_action(events, &1, cleaner, notifier))
+
+        %{
+          status: if(is_map(usage), do: :available, else: :unavailable),
+          pressured: Canaryd.Disk.pressure?(usage, threshold_bytes),
+          actions: results,
+          usage: usage,
+          threshold_bytes: threshold_bytes
+        }
+
+      {:error, reason} ->
+        %{status: :unavailable, pressured: false, actions: [], usage: usage, reason: reason}
+    end
+  end
+
+  defp run_disk_action(events, {:cleanup, usage}, cleaner, notifier) do
+    case cleaner.() do
+      {:ok, result} ->
+        details = %{
+          used_percent: usage.used_percent,
+          available_bytes: usage.available_bytes,
+          removed: length(result.removed),
+          reclaimed_bytes: result.reclaimed_bytes,
+          failures: length(result.failures),
+          skipped: result.skipped
+        }
+
+        Store.log_event(events, :storage, :pressure_cleanup_completed, details)
+
+        if result.reclaimed_bytes == 0 do
+          notifier.(
+            "Mac Health",
+            "Data volume has #{Canaryd.Disk.format_bytes(usage.available_bytes)} available; no safe stale build artifact was removed."
+          )
+        end
+
+        :cleaned
+
+      {:error, :locked} ->
+        Store.log_event(events, :storage, :pressure_cleanup_skipped, %{reason: :locked})
+        :skipped
+
+      {:error, reason} ->
+        Store.log_event(events, :storage, :pressure_cleanup_failed, %{reason: inspect(reason)})
+        notifier.("Mac Health", "Data volume cleanup failed: #{inspect(reason)}")
+        :failed
+    end
+  end
+
   defp suspect_details(suspects), do: Enum.map(suspects, &process_details/1)
 
   defp temperature_details(sys) do
@@ -209,17 +301,30 @@ defmodule Canaryd.Checker do
     scanner = Keyword.get(options, :scanner, &MemoryProcesses.scan/0)
     notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
     now = Keyword.get(options, :now, DateTime.utc_now())
+    swap_usage = Keyword.get(options, :swap_usage)
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
 
     case scanner.() do
       {:ok, apps} ->
-        {new_state, actions} = MemoryMonitor.evaluate(monitor_state, apps, 0, now)
+        {new_state, actions} = MemoryMonitor.evaluate(monitor_state, apps, 0, now, policy)
         Store.put_state(state, :idle_memory_processes, new_state)
         results = Enum.map(actions, &run_memory_action(events, &1, notifier))
+        swap_state = Store.get_value(state, :swap_pressure, SwapMonitor.default_state())
+
+        {new_swap_state, swap_actions} =
+          SwapMonitor.evaluate(swap_state, swap_usage, apps, now, policy)
+
+        Store.put_state(state, :swap_pressure, new_swap_state)
+        swap_results = Enum.map(swap_actions, &run_swap_action(events, &1, notifier))
 
         %{
           status: :available,
-          detected: Enum.count(apps, &MemoryMonitor.candidate?/1),
-          actions: results
+          detected: Enum.count(apps, &MemoryMonitor.candidate?(&1, policy)),
+          actions: results,
+          swap_monitor: %{
+            status: if(is_map(swap_usage), do: :available, else: :unavailable),
+            actions: swap_results
+          }
         }
 
       {:error, reason} ->
@@ -229,8 +334,77 @@ defmodule Canaryd.Checker do
           MemoryMonitor.reset_observations(monitor_state)
         )
 
+        swap_state = Store.get_value(state, :swap_pressure, SwapMonitor.default_state())
+        {new_swap_state, _actions} = SwapMonitor.evaluate(swap_state, nil, [], now, policy)
+        Store.put_state(state, :swap_pressure, new_swap_state)
+
         %{status: :unavailable, detected: 0, actions: [], reason: reason}
     end
+  end
+
+  defp run_swap_action(events, {:alert, usage, apps}, notifier) do
+    details = %{
+      used_bytes: usage.used_bytes,
+      total_bytes: usage.total_bytes,
+      related_apps: apps
+    }
+
+    Store.log_event(events, :memory, :swap_growth_alerted, details)
+
+    suspects =
+      Enum.map_join(apps, ", ", fn app ->
+        "#{app.name} (PID #{app.pid}, RSS #{app.rss_mb} MB)"
+      end)
+
+    suspects = if suspects == "", do: "none", else: suspects
+
+    message =
+      "Swap has grown to #{Canaryd.Swap.format_bytes(usage.used_bytes)}. " <>
+        "Related RSS suspects (not proof of cause): #{suspects}."
+
+    notifier.("Mac Health", message)
+    :alerted
+  end
+
+  @doc false
+  def check_build_processes(state, events, options \\ []) do
+    monitor_state =
+      Store.get_value(state, :build_processes, BuildProcessMonitor.default_state())
+
+    scanner = Keyword.get(options, :scanner, &BuildProcesses.scan/0)
+    notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
+    now = Keyword.get(options, :now, DateTime.utc_now())
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
+
+    case scanner.() do
+      {:ok, processes} ->
+        {new_state, actions} = BuildProcessMonitor.evaluate(monitor_state, processes, now, policy)
+        Store.put_state(state, :build_processes, new_state)
+        results = Enum.map(actions, &run_build_process_action(events, &1, notifier))
+
+        %{
+          status: :available,
+          detected: length(processes),
+          detached: Enum.count(processes, & &1.detached),
+          actions: results
+        }
+
+      {:error, reason} ->
+        Store.put_state(state, :build_processes, BuildProcessMonitor.default_state())
+        %{status: :unavailable, detected: 0, detached: 0, actions: [], reason: reason}
+    end
+  end
+
+  defp run_build_process_action(events, {:alert, process}, notifier) do
+    details = Map.take(process, [:id, :name, :pid, :ppid, :cpu_percent, :rss_mb, :detached])
+    Store.log_event(events, :builds, :detached_build_process_alerted, details)
+
+    notifier.(
+      "Mac Health",
+      "Detached #{process.name} (PID #{process.pid}) is still running. Review it before stopping the build."
+    )
+
+    :alerted
   end
 
   defp run_memory_action(events, {:detected, app, count}, _notifier) do
@@ -267,7 +441,7 @@ defmodule Canaryd.Checker do
     ])
   end
 
-  defp check_idle_simulators(state, events) do
+  defp check_idle_simulators(state, events, policy) do
     monitor_state =
       Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
 
@@ -283,7 +457,8 @@ defmodule Canaryd.Checker do
           devices,
           simulator_foreground,
           automation_active,
-          now
+          now,
+          policy
         )
 
       Store.put_state(state, :idle_simulators, new_monitor_state)
@@ -307,7 +482,9 @@ defmodule Canaryd.Checker do
           }
 
         true ->
-          results = Enum.map(actions, &{&1, run_simulator_action(state, events, &1)})
+          results =
+            Enum.map(actions, &{&1, run_simulator_action(state, events, &1, Simulators, policy)})
+
           notify_simulator_results(results)
 
           %{
@@ -316,7 +493,12 @@ defmodule Canaryd.Checker do
             detected:
               Enum.count(
                 devices,
-                &SimulatorMonitor.candidate?(&1, new_monitor_state.last_foreground_at, now)
+                &SimulatorMonitor.candidate?(
+                  &1,
+                  new_monitor_state.last_foreground_at,
+                  now,
+                  policy
+                )
               ),
             actions: Enum.map(results, &elem(&1, 1))
           }
@@ -334,7 +516,13 @@ defmodule Canaryd.Checker do
   end
 
   @doc false
-  def run_simulator_action(state, events, {:shutdown, device}, simulators \\ Simulators) do
+  def run_simulator_action(
+        state,
+        events,
+        {:shutdown, device},
+        simulators \\ Simulators,
+        policy \\ PolicyConfig.defaults()
+      ) do
     monitor_state =
       Store.get_value(state, :idle_simulators, SimulatorMonitor.default_state())
 
@@ -344,7 +532,8 @@ defmodule Canaryd.Checker do
            SimulatorMonitor.candidate?(
              device,
              Map.get(monitor_state, :last_foreground_at),
-             DateTime.utc_now()
+             DateTime.utc_now(),
+             policy
            ),
          :ok <- simulators.shutdown(device) do
       Store.log_event(events, :simulators, :shutdown, simulator_details(device))
@@ -352,7 +541,7 @@ defmodule Canaryd.Checker do
     else
       {:ok, true} ->
         {updated_state, []} =
-          SimulatorMonitor.evaluate(monitor_state, [], true, false, DateTime.utc_now())
+          SimulatorMonitor.evaluate(monitor_state, [], true, false, DateTime.utc_now(), policy)
 
         :ok = Store.put_state(state, :idle_simulators, updated_state)
         simulator_shutdown_skipped(events, device, :simulator_foreground)
@@ -410,9 +599,16 @@ defmodule Canaryd.Checker do
 
   @doc "Inspects Codex helpers; dry runs do not advance observations."
   def run_codex(options \\ []) do
-    Store.with_tables(fn state, events ->
-      check_idle_codex_processes(state, events, System.idle_duration(), options)
-    end)
+    with {:ok, policy} <- PolicyConfig.read_all() do
+      Store.with_tables(fn state, events ->
+        check_idle_codex_processes(
+          state,
+          events,
+          System.idle_duration(),
+          Keyword.put(options, :policy, policy)
+        )
+      end)
+    end
   end
 
   @doc false
@@ -423,11 +619,12 @@ defmodule Canaryd.Checker do
     scanner = Keyword.get(options, :scanner, &CodexProcesses.scan/0)
     dry_run = Keyword.get(options, :dry_run, false)
     now = Keyword.get(options, :now, Elixir.System.system_time(:millisecond))
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
 
     case scanner.() do
       {:ok, processes} ->
         {new_state, actions} =
-          CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration, now)
+          CodexProcessMonitor.evaluate(monitor_state, processes, idle_duration, now, policy)
 
         results =
           if dry_run do
@@ -506,7 +703,7 @@ defmodule Canaryd.Checker do
   defp process_word(1), do: "process"
   defp process_word(_count), do: "processes"
 
-  defp check_idle_playwright_browsers(state, events) do
+  defp check_idle_playwright_browsers(state, events, policy) do
     monitor_state =
       Store.get_value(state, :idle_playwright_browsers, PlaywrightBrowserMonitor.default_state())
 
@@ -515,7 +712,7 @@ defmodule Canaryd.Checker do
       automation_active = automation_processes != []
 
       {new_monitor_state, actions} =
-        PlaywrightBrowserMonitor.evaluate(monitor_state, browsers, automation_active)
+        PlaywrightBrowserMonitor.evaluate(monitor_state, browsers, automation_active, policy)
 
       Store.put_state(state, :idle_playwright_browsers, new_monitor_state)
 
@@ -614,14 +811,14 @@ defmodule Canaryd.Checker do
     Map.take(browser, [:id, :kind, :pid, :ppid, :name])
   end
 
-  defp check_unresponsive_apps(state, events) do
+  defp check_unresponsive_apps(state, events, policy) do
     monitor_state =
       Store.get_value(state, :unresponsive_apps, UnresponsiveMonitor.default_state())
 
     case Unresponsive.scan() do
       {:ok, apps} ->
         {new_monitor_state, actions} =
-          UnresponsiveMonitor.evaluate(monitor_state, apps, DateTime.utc_now())
+          UnresponsiveMonitor.evaluate(monitor_state, apps, DateTime.utc_now(), policy)
 
         Store.put_state(state, :unresponsive_apps, new_monitor_state)
         results = Enum.map(actions, &run_app_action(events, &1))
@@ -696,13 +893,20 @@ defmodule Canaryd.Checker do
   def record_system(state, events, sys, options \\ []) do
     now = Keyword.get(options, :now, DateTime.utc_now())
     notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
     sys_state = Store.get_state(state, :system)
+
+    system_policy = %{
+      policy
+      | cleanclip_restart_cooldown: policy.system_restart_cooldown,
+        cleanclip_failure_confirmations: policy.system_failure_confirmations
+    }
 
     {new_sys_state, action} =
       if sys.warnings == [] do
-        StateMachine.transition(sys_state, :ok, now)
+        StateMachine.transition(sys_state, :ok, now, system_policy)
       else
-        StateMachine.transition(sys_state, :fail, now)
+        StateMachine.transition(sys_state, :fail, now, system_policy)
       end
 
     Store.put_state(state, :system, new_sys_state)
@@ -730,6 +934,7 @@ defmodule Canaryd.Checker do
     alive = Keyword.get(options, :alive?, &CleanClip.process_alive?/0)
     starter = Keyword.get(options, :starter, &CleanClip.start/0)
     st = Store.get_state(state, :cleanclip)
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
     was_alive = alive.()
 
     running =
@@ -756,7 +961,7 @@ defmodule Canaryd.Checker do
         result
 
       was_alive and st.last_probe == :ok and
-          Duration.between(now, st.updated_at) in 0..(Duration.minutes(30) - 1) ->
+          Duration.between(now, st.updated_at) in 0..(policy.cleanclip_probe_interval - 1) ->
         %{probe: :skipped, action: :probe_not_due, failures: st.consecutive_failures}
 
       true ->
@@ -769,7 +974,8 @@ defmodule Canaryd.Checker do
     restarter = Keyword.get(options, :restarter, &CleanClip.restart/0)
     notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
     result = if probe_result == :ok, do: :ok, else: :fail
-    {new_st, action} = StateMachine.transition(st, result, now)
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
+    {new_st, action} = StateMachine.transition(st, result, now, policy)
     Store.put_state(state, :cleanclip, new_st)
 
     case {result, action} do

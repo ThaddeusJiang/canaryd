@@ -1,27 +1,32 @@
 defmodule Canaryd.SimulatorMonitor do
   @moduledoc """
-  Fixed inactivity policy for shutting down idle booted Simulator devices.
+  Configurable inactivity policy for shutting down idle booted Simulator devices.
 
   A device becomes actionable 15 minutes after its latest known activity.
   Simulator foreground use and supported test automation block shutdown.
   """
 
-  alias Canaryd.Duration
-
-  @minimum_idle Duration.minutes(15)
+  alias Canaryd.{Duration, PolicyConfig}
 
   def default_state do
     %{observations: %{}, last_foreground_at: nil}
   end
 
   @doc "Evaluates one scan and returns `{new_state, actions}`."
-  def evaluate(state, devices, simulator_foreground, automation_active, now) do
+  def evaluate(
+        state,
+        devices,
+        simulator_foreground,
+        automation_active,
+        now,
+        policy \\ PolicyConfig.defaults()
+      ) do
     state = state |> normalize_state() |> record_foreground(simulator_foreground, now)
 
     candidates =
       if not simulator_foreground and not automation_active do
         devices
-        |> Enum.filter(&candidate?(&1, state.last_foreground_at, now))
+        |> Enum.filter(&candidate?(&1, state.last_foreground_at, now, policy))
         |> Enum.uniq_by(& &1.udid)
       else
         []
@@ -45,20 +50,24 @@ defmodule Canaryd.SimulatorMonitor do
     |> Enum.sort_by(& &1.name)
   end
 
-  def candidate?(device, now), do: candidate?(device, nil, now)
+  def candidate?(device, now), do: candidate?(device, nil, now, PolicyConfig.defaults())
+
+  def candidate?(device, last_foreground_at, now),
+    do: candidate?(device, last_foreground_at, now, PolicyConfig.defaults())
 
   def candidate?(
         %{state: :booted, last_used_at: %DateTime{} = last_used_at},
         last_foreground_at,
-        now
+        now,
+        policy
       ) do
     last_activity_at = latest_activity(last_used_at, last_foreground_at)
-    Duration.between(now, last_activity_at) >= @minimum_idle
+    Duration.between(now, last_activity_at) >= policy.simulator_min_idle
   end
 
-  def candidate?(_device, _last_foreground_at, _now), do: false
+  def candidate?(_device, _last_foreground_at, _now, _policy), do: false
 
-  def minimum_idle, do: @minimum_idle
+  def minimum_idle, do: PolicyConfig.defaults().simulator_min_idle
 
   defp normalize_state(state) do
     %{

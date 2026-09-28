@@ -20,7 +20,7 @@ defmodule Canaryd.SimulatorMonitorTest do
     )
   end
 
-  test "exposes the fixed Simulator inactivity threshold" do
+  test "exposes the default Simulator inactivity threshold" do
     assert SimulatorMonitor.minimum_idle() == 900_000
   end
 

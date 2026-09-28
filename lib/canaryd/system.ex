@@ -4,11 +4,7 @@ defmodule Canaryd.System do
   and user idle detection (keyboard/mouse via IOHIDSystem HIDIdleTime).
   """
 
-  @load_factor_warn 0.8
-  @chip_temperature_warn_c 70.0
-  @hot_process_cpu_min 20.0
-
-  alias Canaryd.Duration
+  alias Canaryd.{DiskPressureConfig, Duration, PolicyConfig}
 
   @doc "Milliseconds since the last keyboard or mouse input."
   def idle_duration do
@@ -39,6 +35,21 @@ defmodule Canaryd.System do
   """
   def check(options \\ []) do
     runner = Keyword.get(options, :runner, &cmd/2)
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
+
+    disk_sampler =
+      Keyword.get(options, :disk_sampler, fn ->
+        if Keyword.has_key?(options, :runner),
+          do: {:error, :unavailable},
+          else: Canaryd.Disk.sample()
+      end)
+
+    swap_sampler =
+      Keyword.get(options, :swap_sampler, fn ->
+        if Keyword.has_key?(options, :runner),
+          do: {:error, :unavailable},
+          else: Canaryd.Swap.sample()
+      end)
 
     temperature_sampler =
       Keyword.get(options, :temperature_sampler, &Canaryd.Temperature.sample/0)
@@ -49,7 +60,16 @@ defmodule Canaryd.System do
     mem_free = memory_free_pct(runner)
     battery_temperature = battery_temperature(runner)
     temperature_sample = temperature_sampler.()
-    load_pressure = is_number(load_per_core) and load_per_core > @load_factor_warn
+    disk_usage = unwrap_sample(disk_sampler.())
+    swap_usage = unwrap_sample(swap_sampler.())
+
+    disk_threshold =
+      case Keyword.fetch(options, :disk_threshold) do
+        {:ok, result} -> result
+        :error -> DiskPressureConfig.read()
+      end
+
+    load_pressure = is_number(load_per_core) and load_per_core > policy.system_load_factor
 
     {chip_temperatures, temperature_error} =
       case temperature_sample do
@@ -57,7 +77,7 @@ defmodule Canaryd.System do
         {:error, reason} -> {%{cpu_temperature_c: nil, gpu_temperature_c: nil}, reason}
       end
 
-    chip_temperature_pressure = chip_temperature_pressure?(chip_temperatures)
+    chip_temperature_pressure = chip_temperature_pressure?(chip_temperatures, policy)
     thermal_pressure = throttled == true or chip_temperature_pressure or load_pressure
 
     sampling_warnings =
@@ -79,12 +99,12 @@ defmodule Canaryd.System do
     warnings = []
     warnings = if throttled, do: ["CPU thermal throttling active" | warnings], else: warnings
 
-    warnings = chip_temperature_warnings(warnings, chip_temperatures)
+    warnings = chip_temperature_warnings(warnings, chip_temperatures, policy)
 
     warnings =
       if load_pressure,
         do: [
-          "load1 #{Float.round(load1, 2)} > #{Float.round(cores * @load_factor_warn, 1)} (#{cores} cores)"
+          "load1 #{Float.round(load1, 2)} > #{Float.round(cores * policy.system_load_factor, 1)} (#{cores} cores)"
           | warnings
         ],
         else: warnings
@@ -93,9 +113,22 @@ defmodule Canaryd.System do
     warnings = pressure_warnings ++ sampling_warnings
 
     warnings =
-      if is_number(mem_free) and mem_free < 10,
+      if is_number(mem_free) and mem_free < policy.system_memory_free,
         do: ["memory free #{mem_free}%" | warnings],
         else: warnings
+
+    warnings =
+      case disk_threshold do
+        {:ok, threshold_bytes} ->
+          if Canaryd.Disk.pressure?(disk_usage, threshold_bytes),
+            do: [
+              "disk available #{Canaryd.Disk.format_bytes(disk_usage.available_bytes)}" | warnings
+            ],
+            else: warnings
+
+        {:error, reason} ->
+          ["storage threshold unavailable: #{inspect(reason)}" | warnings]
+      end
 
     %{
       load1: load1,
@@ -112,15 +145,21 @@ defmodule Canaryd.System do
       pressure_warnings: pressure_warnings,
       thermal_status: thermal_status,
       mem_free_pct: mem_free,
+      disk_usage: disk_usage,
+      disk_threshold: disk_threshold,
+      swap_usage: swap_usage,
       warnings: warnings,
-      hot_processes: if(thermal_pressure, do: hot_processes(runner), else: [])
+      hot_processes: if(thermal_pressure, do: hot_processes(runner, policy), else: [])
     }
   end
 
+  defp unwrap_sample({:ok, value}), do: value
+  defp unwrap_sample(_result), do: nil
+
   @doc false
-  def chip_temperature_pressure?(temperatures) do
-    above_threshold?(temperatures.cpu_temperature_c) or
-      above_threshold?(temperatures.gpu_temperature_c)
+  def chip_temperature_pressure?(temperatures, policy \\ PolicyConfig.defaults()) do
+    above_threshold?(temperatures.cpu_temperature_c, policy) or
+      above_threshold?(temperatures.gpu_temperature_c, policy)
   end
 
   @doc "Formats chip sensor and battery temperatures without mixing their meaning."
@@ -168,28 +207,28 @@ defmodule Canaryd.System do
   end
 
   @doc false
-  def parse_hot_processes(output, current_uid) do
+  def parse_hot_processes(output, current_uid, policy \\ PolicyConfig.defaults()) do
     output
     |> String.split("\n", trim: true)
     |> Enum.flat_map(&parse_process_row(&1, current_uid))
-    |> Enum.filter(&(&1.cpu_percent >= @hot_process_cpu_min))
+    |> Enum.filter(&(&1.cpu_percent >= policy.system_hot_process_cpu))
     |> Enum.sort_by(& &1.cpu_percent, :desc)
     |> Enum.take(5)
   end
 
-  defp chip_temperature_warnings(warnings, temperatures) do
+  defp chip_temperature_warnings(warnings, temperatures, policy) do
     warnings =
-      if above_threshold?(temperatures.cpu_temperature_c),
+      if above_threshold?(temperatures.cpu_temperature_c, policy),
         do: ["CPU temperature #{format_celsius(temperatures.cpu_temperature_c)}" | warnings],
         else: warnings
 
-    if above_threshold?(temperatures.gpu_temperature_c),
+    if above_threshold?(temperatures.gpu_temperature_c, policy),
       do: ["GPU temperature #{format_celsius(temperatures.gpu_temperature_c)}" | warnings],
       else: warnings
   end
 
-  defp above_threshold?(value) do
-    is_number(value) and value >= @chip_temperature_warn_c
+  defp above_threshold?(value, policy) do
+    is_number(value) and value >= policy.system_chip_temperature
   end
 
   defp format_celsius(value), do: "#{value}°C"
@@ -249,12 +288,12 @@ defmodule Canaryd.System do
     end
   end
 
-  defp hot_processes(runner) do
+  defp hot_processes(runner, policy) do
     with {:ok, uid_output} <- runner.("id", ["-u"]),
          {uid, ""} <- Integer.parse(String.trim(uid_output)),
          {:ok, output} <- runner.("ps", ["-Ao", "pid=,uid=,pcpu=,command="]) do
       own_pid = Elixir.System.pid() |> String.to_integer()
-      Enum.reject(parse_hot_processes(output, uid), &(&1.pid == own_pid))
+      Enum.reject(parse_hot_processes(output, uid, policy), &(&1.pid == own_pid))
     else
       _ -> []
     end
