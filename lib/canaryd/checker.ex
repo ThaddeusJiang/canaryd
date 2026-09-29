@@ -43,7 +43,7 @@ defmodule Canaryd.Checker do
       Store.with_tables(fn state, events ->
         idle = System.idle_duration()
         sys = System.check(policy: policy)
-        record_system(state, events, sys, policy)
+        record_system(state, events, sys, policy: policy)
         storage_monitor = check_disk_pressure(state, events, sys, policy: policy)
         thermal_monitor = check_thermal_processes(state, events, sys, policy)
 
@@ -110,19 +110,21 @@ defmodule Canaryd.Checker do
       |> process_details()
       |> Map.put(:suspects, suspect_details(suspects))
       |> Map.put(:temperatures, temperature_details(sys))
+      |> Map.put(:pressure_warnings, sys.pressure_warnings)
 
-    delivery = deliver_temperature_warning(sys, suspects)
+    delivery = deliver_pressure_warning(sys, suspects)
     Store.log_event(events, :thermal, :heat_alerted, Map.put(details, :delivery, delivery))
 
     :alerted
   end
 
   defp run_thermal_action(events, {:report, suspects}, sys) do
-    delivery = deliver_temperature_warning(sys, suspects)
+    delivery = deliver_pressure_warning(sys, suspects)
 
     Store.log_event(events, :thermal, :heat_suspects_reported, %{
       suspects: suspect_details(suspects),
       temperatures: temperature_details(sys),
+      pressure_warnings: sys.pressure_warnings,
       delivery: delivery
     })
 
@@ -135,12 +137,14 @@ defmodule Canaryd.Checker do
       |> process_details()
       |> Map.put(:suspects, suspect_details(suspects))
       |> Map.put(:temperatures, temperature_details(sys))
+      |> Map.put(:pressure_warnings, sys.pressure_warnings)
 
     Store.log_event(events, :thermal, :heat_action_requested, details)
 
-    summary = "#{System.temperature_summary(sys)}\n#{suspect_summary(suspects)}"
+    {title, pressure_summary} = System.pressure_notification(sys)
+    summary = "#{pressure_summary}\n#{suspect_summary(suspects)}"
 
-    case Notifier.choose_thermal_action(process.name, summary) do
+    case Notifier.choose_pressure_action(title, process.name, summary) do
       {:ok, :restart} -> restart_hot_app(events, process)
       {:ok, :close} -> close_hot_app(events, process)
       {:ok, :ignore} -> ignore_hot_app(events, process)
@@ -270,18 +274,20 @@ defmodule Canaryd.Checker do
     ])
   end
 
-  defp deliver_temperature_warning(sys, suspects) do
-    message = "#{System.temperature_summary(sys)}\n\nSuspects: #{suspect_summary(suspects)}"
+  defp deliver_pressure_warning(sys, suspects) do
+    {title, summary} = System.pressure_notification(sys)
+    message = "#{summary}\n\nHigh-CPU candidates: #{suspect_summary(suspects)}"
 
-    case Notifier.warn_temperature(message) do
+    case Notifier.warn_pressure(title, message) do
       :ok ->
         :notification_scheduled
 
       {:error, reason} ->
-        Notifier.notify("Mac temperature warning", String.replace(message, "\n\n", "; "))
-        {:notification_fallback, inspect(reason)}
+        {:notification_failed, inspect(reason)}
     end
   end
+
+  defp suspect_summary([]), do: "none above the CPU threshold"
 
   defp suspect_summary(suspects) do
     Enum.map_join(suspects, ", ", fn process ->
@@ -883,7 +889,11 @@ defmodule Canaryd.Checker do
     ])
   end
 
-  defp record_system(state, events, sys, policy) do
+  @doc false
+  def record_system(state, events, sys, options \\ []) do
+    now = Keyword.get(options, :now, DateTime.utc_now())
+    notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
+    policy = Keyword.get(options, :policy, PolicyConfig.defaults())
     sys_state = Store.get_state(state, :system)
 
     system_policy = %{
@@ -894,9 +904,9 @@ defmodule Canaryd.Checker do
 
     {new_sys_state, action} =
       if sys.warnings == [] do
-        StateMachine.transition(sys_state, :ok, DateTime.utc_now(), system_policy)
+        StateMachine.transition(sys_state, :ok, now, system_policy)
       else
-        StateMachine.transition(sys_state, :fail, DateTime.utc_now(), system_policy)
+        StateMachine.transition(sys_state, :fail, now, system_policy)
       end
 
     Store.put_state(state, :system, new_sys_state)
@@ -904,7 +914,11 @@ defmodule Canaryd.Checker do
     case action do
       :blocked ->
         Store.log_event(events, :system, :system_warn, %{warnings: sys.warnings})
-        Notifier.notify("Mac Health", "System degraded: #{Enum.join(sys.warnings, "; ")}")
+        other_warnings = sys.warnings -- sys.pressure_warnings
+
+        if other_warnings != [] do
+          notifier.("Mac Health", "System degraded: #{Enum.join(other_warnings, "; ")}")
+        end
 
       :recovered ->
         Store.log_event(events, :system, :recovered, %{})

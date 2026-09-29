@@ -43,6 +43,18 @@ defmodule Canaryd.NotificationHelperTest do
     assert source =~ "withTimeInterval: timerInterval(for: timeout)"
   end
 
+  test "replaces only pressure warnings while keeping action request identities unique" do
+    source = NotificationHelper.source()
+
+    assert source =~
+             ~s|mode == "notify" ? (replacementIdentifier ?? UUID().uuidString) : UUID().uuidString|
+
+    assert source =~
+             "center.removeDeliveredNotifications(withIdentifiers: [replacementIdentifier])"
+
+    assert source =~ "arguments.count == 5 || arguments.count == 6"
+  end
+
   test "uses the Canaryd name and logo" do
     assert NotificationHelper.bundle_spec() == %{
              app_name: "Canaryd.app",

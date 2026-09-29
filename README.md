@@ -516,7 +516,7 @@ Canaryd confirms abnormal behavior before changing another process.
 
 | Signal | Confirmation | Response |
 | --- | --- | --- |
-| CPU or GPU heat | Three temperature samples; two rounds for the same actionable leader | Warn first, then offer Close or Restart |
+| High load, CPU/GPU heat, or thermal throttling | Three temperature samples; two rounds for the same actionable leader | Name the trigger, update one pressure warning, then offer Close or Restart |
 | GUI app hang | macOS Not Responding state in two consecutive rounds | Restart a supported third-party app in the background |
 | High memory | Three spaced low-CPU, 1 GB+ rounds | Alert only, at most once per hour |
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
@@ -525,10 +525,11 @@ Canaryd confirms abnormal behavior before changing another process.
 | Stale build output | Complete tree inactive for the configured retention (default 24h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible probe every 30 minutes when healthy; retry failures next check | Restart quietly; notify only when recovery is blocked |
-| System pressure | Three consecutive full checks | Send one system-degraded notification |
+| Other system health failures | Three consecutive full checks | Send one system-degraded notification; pressure warnings share the notification above |
 
 The shared safety rules are:
 
+- Pressure warnings share the existing 15-minute cooldown across candidates; action prompts share the one-hour cooldown. Changing process names or PIDs does not add notification cards.
 - Battery temperature never substitutes for CPU or GPU temperature.
 - CPU use identifies suspects; it does not prove exact heat attribution.
 - Apple apps, system daemons, active apps, and unsafe helper processes are

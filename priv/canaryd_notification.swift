@@ -21,17 +21,19 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate,
     private let mode: String
     private let title: String
     private let body: String
+    private let replacementIdentifier: String?
     private let timeout: TimeInterval
     private let center = UNUserNotificationCenter.current()
     private var requestIdentifier: String?
     private var authorizationTimer: Timer?
     private var notificationTimer: Timer?
 
-    init(mode: String, title: String, body: String, timeout: TimeInterval) {
+    init(mode: String, title: String, body: String, timeout: TimeInterval, replacementIdentifier: String?) {
         self.mode = mode
         self.title = title
         self.body = body
         self.timeout = timeout
+        self.replacementIdentifier = replacementIdentifier
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -76,7 +78,7 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate,
             content.categoryIdentifier = categoryIdentifier
         }
 
-        let identifier = UUID().uuidString
+        let identifier = mode == "notify" ? (replacementIdentifier ?? UUID().uuidString) : UUID().uuidString
         requestIdentifier = identifier
         let request = UNNotificationRequest(
             identifier: identifier,
@@ -119,6 +121,10 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate,
         if mode == "notify" {
             finish("scheduled", removeDelivered: false)
             return
+        }
+
+        if let replacementIdentifier {
+            center.removeDeliveredNotifications(withIdentifiers: [replacementIdentifier])
         }
 
         notificationTimer = Timer.scheduledTimer(
@@ -173,8 +179,8 @@ final class ApplicationDelegate: NSObject, NSApplicationDelegate,
 
 let arguments = CommandLine.arguments
 
-guard arguments.count == 5 else {
-    fail("usage: canaryd-notification MODE TITLE BODY TIMEOUT")
+guard arguments.count == 5 || arguments.count == 6 else {
+    fail("usage: canaryd-notification MODE TITLE BODY TIMEOUT [IDENTIFIER]")
 }
 
 let mode = arguments[1]
@@ -189,12 +195,20 @@ guard let timeout = TimeInterval(arguments[4]), timeout > 0 else {
     fail("invalid notification timeout")
 }
 
+let replacementIdentifier = arguments.count == 6 ? arguments[5] : nil
+if let replacementIdentifier {
+    guard !replacementIdentifier.isEmpty else {
+        fail("replacement identifier must not be empty")
+    }
+}
+
 let application = NSApplication.shared
 let applicationDelegate = ApplicationDelegate(
     mode: mode,
     title: title,
     body: body,
-    timeout: timeout
+    timeout: timeout,
+    replacementIdentifier: replacementIdentifier
 )
 application.setActivationPolicy(.accessory)
 application.delegate = applicationDelegate

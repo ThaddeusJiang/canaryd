@@ -59,6 +59,38 @@ defmodule Canaryd.NotifierTest do
              {:error, {:notification_failed, "not permitted"}}
   end
 
+  test "pressure warnings carry a stable replacement identifier" do
+    runner = fn _bin, args ->
+      assert args == [
+               "notify",
+               "Mac high load warning",
+               "load1 31.48 > 8.0",
+               "30000",
+               "canaryd.system-pressure"
+             ]
+
+      {"scheduled", 0}
+    end
+
+    assert Notifier.warn_pressure("Mac high load warning", "load1 31.48 > 8.0", runner) == :ok
+  end
+
+  test "pressure action notifications use the actual cause and independent action identity" do
+    runner = fn _bin, args ->
+      assert ["action", "Mac high load warning", body, "120000", "canaryd.system-pressure"] = args
+      assert body =~ "Code is a high-CPU candidate during system pressure."
+      assert body =~ "load1 31.48 > 8.0"
+      {"ignore", 0}
+    end
+
+    assert Notifier.choose_pressure_action(
+             "Mac high load warning",
+             "Code",
+             "load1 31.48 > 8.0",
+             runner
+           ) == {:ok, :ignore}
+  end
+
   test "asks for a thermal action in a notification" do
     runner = fn _bin, args ->
       assert args == [
