@@ -21,6 +21,117 @@ defmodule Canaryd.BuildCleanupTest do
     assert BuildCleanup.retention() == Duration.hours(24)
   end
 
+  test "emergency stops builds before removing recent validated artifacts", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    source = Path.join([root, "Projects", "example", "src", "main.rs"])
+    File.mkdir_p!(Path.dirname(source))
+    File.write!(source, "fn main() {}")
+    now = ~U[2030-01-01 00:00:00Z]
+
+    result =
+      run(root,
+        mode: :emergency,
+        now: now,
+        rust_roots: [Path.join(root, "Projects")],
+        build_stopper: fn ->
+          assert File.dir?(target)
+          send(self(), :builds_stopped)
+          {:ok, 2}
+        end
+      )
+
+    assert_received :builds_stopped
+    assert result.terminated_build_processes == 2
+    assert Enum.any?(result.removed, &(&1.path == target))
+    refute File.exists?(target)
+    assert File.read!(source) == "fn main() {}"
+  end
+
+  test "failed build stop prevents emergency deletion", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+
+    assert {:error, :build_process_active} =
+             BuildCleanup.run(
+               home: root,
+               lock_path: Path.join(root, "cleanup.lock"),
+               mode: :emergency,
+               build_stopper: fn -> {:error, :build_process_active} end
+             )
+
+    assert File.dir?(target)
+  end
+
+  test "emergency with no candidates does not terminate builds", %{root: root} do
+    result =
+      run(root,
+        mode: :emergency,
+        rust_roots: [],
+        build_stopper: fn -> flunk("no candidate may not interrupt a build") end
+      )
+
+    assert result.terminated_build_processes == 0
+    assert result.removed == []
+  end
+
+  test "emergency detects completed sccache objects before stopping builds", %{root: root} do
+    object = Path.join([root, "Library/Caches/Mozilla.sccache/a/a", String.duplicate("a", 64)])
+    File.mkdir_p!(Path.dirname(object))
+    File.write!(object, "cached")
+
+    result =
+      run(root,
+        mode: :emergency,
+        rust_roots: [],
+        now: ~U[2030-01-01 00:00:00Z],
+        sccache_activity_scanner: fn -> {:ok, MapSet.new()} end,
+        build_stopper: fn ->
+          assert File.exists?(object)
+          {:ok, 1}
+        end
+      )
+
+    assert result.terminated_build_processes == 1
+    assert result.sccache.removed_objects == 1
+    refute File.exists?(object)
+  end
+
+  test "emergency detects shared Bazel repository entries before stopping builds", %{root: root} do
+    entry =
+      Path.join([
+        root,
+        "Library/Caches/bazel/_bazel_test/cache/repos/v1/content_addressable/sha256",
+        String.duplicate("a", 64)
+      ])
+
+    File.mkdir_p!(entry)
+    File.write!(Path.join(entry, "file"), "downloaded dependency")
+
+    assert Canaryd.BazelRepositoryCache.candidates?(root)
+
+    result =
+      run(root,
+        mode: :emergency,
+        rust_roots: [],
+        now: ~U[2030-01-01 00:00:00Z],
+        build_stopper: fn -> {:ok, 1} end
+      )
+
+    assert result.terminated_build_processes == 1
+  end
+
+  test "unavailable cleanup lock never stops a build", %{root: root} do
+    lock = Path.join(root, "bad-lock")
+    File.mkdir_p!(lock)
+
+    assert {:error, :lock_unavailable} =
+             BuildCleanup.run(
+               home: root,
+               lock_path: lock,
+               mode: :emergency,
+               build_stopper: fn -> flunk("lock must be held before stopping builds") end
+             )
+  end
+
   test "the default cutoff is shared by Xcode, temporary Cargo and Bazel entries", %{root: root} do
     now = ~U[2030-01-01 00:00:00Z]
     stale = retention_candidates(root, "old")

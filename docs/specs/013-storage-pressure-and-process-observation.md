@@ -1,7 +1,7 @@
 # 013 Storage Pressure and Process Observation
 
 Protect the Mac when the Data volume is nearly full and make swap growth or
-detached compiler work visible without unsafe automatic process termination.
+detached compiler work visible, with an explicit emergency cleanup policy.
 
 ## Scope
 
@@ -11,6 +11,10 @@ detached compiler work visible without unsafe automatic process termination.
   monitoring; invalid or unreadable settings stop pressure-triggered cleanup.
 - Reuse the existing fail-closed build cleanup categories and retention rules.
 - Apply the configured cleanup cooldown (default one hour) and clear the pressure state after recovery.
+- Below the configurable emergency threshold (default 1024 MiB), bypass the
+  ordinary cooldown, check for cleanup candidates, terminate current-user
+  build processes and descendants when candidates exist, then remove validated
+  build output regardless of its age.
 - Read global macOS swap usage and correlate sustained growth with the largest
   observed application RSS values.
 - Observe current-user `cargo`, `rustc`, `clang`, `cmake`, `ninja`, `make`,
@@ -22,9 +26,13 @@ detached compiler work visible without unsafe automatic process termination.
 
 - The threshold never authorizes arbitrary path deletion.
 - Active or unverifiable build output remains protected by the existing cleanup
-  rules.
+  rules during ordinary cleanup. Emergency cleanup may delete the target of a
+  terminated compiler; an unrelated running executable still protects its target.
+- If process scanning or termination cannot be confirmed, emergency cleanup
+  does not delete candidates.
 - Swap is global; a related RSS process is not declared the cause of swap.
 - Detached build alerts do not stop processes.
+- The emergency threshold is the only automatic path that stops build processes.
 - `StorageManagementService`, `ApplicationsStorageExtension`, `WindowServer`,
   `kernel_task`, and other system processes remain observation-only.
 - User-confirmed process actions are a separate future feature and must
@@ -80,3 +88,15 @@ When the user sets `canaryd config storage-threshold 30G`,
 Then subsequent health checks use 30 GiB for warnings, cleanup entry, and
 recovery without restarting the launchd jobs. Invalid or unreadable settings
 prevent pressure-triggered cleanup until corrected.
+
+### BDD-06 Emergency cleanup interrupts builds
+
+Given Data-volume free space is below `storage-emergency-threshold` and the
+cleanup lock is available,
+
+When the next health check runs,
+
+Then canaryd bypasses the ordinary cleanup cooldown, terminates current-user
+build processes and descendants, and removes validated build artifacts without
+the retention age limit. If a build process remains active, candidate deletion
+does not start. Source and arbitrary worktrees are not deletion candidates.

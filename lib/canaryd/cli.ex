@@ -91,7 +91,7 @@ defmodule Canaryd.CLI do
   end
 
   defp print_config(config) do
-    for key <- [:check_interval, :cleanup_at, :build_retention] do
+    for key <- [:check_interval, :build_retention] do
       IO.puts(
         "#{String.replace(to_string(key), "_", "-")}: #{Canaryd.Config.format(key, Map.fetch!(config, key))}"
       )
@@ -360,11 +360,10 @@ defmodule Canaryd.CLI do
       canaryd --version          show the installed version
 
       --check-interval 5m        monitoring interval (whole minutes dividing 24h; units: s, m, h)
-      --cleanup-at 04:00         daily cleanup time (local HH:MM)
       --build-retention 24h      cache retention (1h..87600h)
 
       start/config accept all options; clean accepts --build-retention.
-      Environment: CANARYD_CHECK_INTERVAL, CANARYD_CLEANUP_AT, CANARYD_BUILD_RETENTION.
+      Environment: CANARYD_CHECK_INTERVAL, CANARYD_BUILD_RETENTION.
       Priority: flags > environment > saved settings > defaults.
       Run start again to apply schedule changes; no configuration file is required.
     """)

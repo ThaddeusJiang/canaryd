@@ -1,10 +1,11 @@
 defmodule Canaryd.BuildCleanup do
   @moduledoc """
-  Removes stale Xcode/Cargo artifacts, orphaned Bazel output bases, and stale
-  shared Bazel repository entries.
+  Removes Xcode/Cargo artifacts, orphaned Bazel output bases, and shared Bazel
+  repository entries. Ordinary cleanup applies retention; emergency cleanup
+  stops builds first and can remove recent validated artifacts.
 
   Candidate discovery and process checks are intentionally conservative. A
-  path is removed only after its identity and active build state have been
+  path is removed only after its identity and process state have been
   revalidated, together with tree age or a missing workspace as appropriate.
   """
 
@@ -14,6 +15,7 @@ defmodule Canaryd.BuildCleanup do
     BazelCache,
     BazelRepositoryCache,
     BuildCleanupConfig,
+    BuildProcessStop,
     Duration,
     FileLock,
     Paths
@@ -64,12 +66,40 @@ defmodule Canaryd.BuildCleanup do
     FileLock.with_lock(
       lock_path,
       fn ->
-        with {:ok, retention} <- Canaryd.Config.retention(options, home: home) do
-          {:ok, cleanup(home, retention, options)}
+        with {:ok, retention} <- Canaryd.Config.retention(options, home: home),
+             {:ok, stopped} <- stop_builds(home, options) do
+          {:ok, Map.put(cleanup(home, retention, options), :terminated_build_processes, stopped)}
         end
       end,
       create: true
     )
+  end
+
+  defp stop_builds(home, options) do
+    if Keyword.get(options, :mode) == :emergency and emergency_candidates?(home, options) do
+      Keyword.get(options, :build_stopper, &BuildProcessStop.run/0).()
+    else
+      {:ok, 0}
+    end
+  end
+
+  defp emergency_candidates?(home, options) do
+    rust_roots = Keyword.get_lazy(options, :rust_roots, fn -> default_rust_roots(home) end)
+    stat_reader = Keyword.get(options, :stat_reader, &File.lstat/1)
+
+    rust_context = %{
+      home: home,
+      tmp_root: Keyword.get(options, :rust_tmp_root, "/private/tmp"),
+      stat_reader: stat_reader
+    }
+
+    xcode_root = Path.join([home, "Library", "Developer", "Xcode", "DerivedData"])
+
+    Canaryd.SccacheCleanup.candidates?(home) or
+      xcode_candidates(xcode_root) != [] or
+      rust_candidates(rust_roots, filesystem_root: home, stat_reader: stat_reader) != [] or
+      temporary_rust_candidates(rust_context) != [] or
+      BazelCache.candidates(home) != [] or BazelRepositoryCache.candidates?(home)
   end
 
   @doc false
@@ -131,47 +161,60 @@ defmodule Canaryd.BuildCleanup do
     case process_scanner.() do
       {:ok, process_names} ->
         cutoff =
-          now
-          |> Duration.add(-retention)
-          |> DateTime.to_unix(:second)
+          if Keyword.get(options, :mode) == :emergency do
+            nil
+          else
+            now |> Duration.add(-retention) |> DateTime.to_unix(:second)
+          end
 
-        result
-        |> cleanup_category(
-          :xcode,
-          xcode_candidates(xcode_root),
-          xcode_root,
-          cutoff,
-          process_names,
-          process_scanner
-        )
-        |> cleanup_category(
-          :rust,
-          rust_candidates(rust_roots,
-            filesystem_root: home,
-            stat_reader: rust_context.stat_reader
-          ) ++
-            temporary_rust_candidates(rust_context),
-          rust_context,
-          cutoff,
-          process_names,
-          process_scanner
-        )
-        |> cleanup_category(
-          :bazel,
-          BazelCache.candidates(home),
-          %{
-            home: home,
-            activity_scanner:
-              Keyword.get(options, :bazel_activity_scanner, &BazelCache.scan_activity/0)
-          },
-          nil,
-          process_names,
-          process_scanner
-        )
-        |> Map.update!(:removed, &Enum.reverse/1)
-        |> Map.update!(:failures, &Enum.reverse/1)
-        |> cleanup_repositories(home, cutoff, options)
-        |> cleanup_sccache(home, cutoff, options)
+        cache_cutoff = cutoff || DateTime.to_unix(now, :second)
+
+        result =
+          if Keyword.get(options, :mode) == :emergency,
+            do: cleanup_sccache(result, home, cache_cutoff, options),
+            else: result
+
+        result =
+          result
+          |> cleanup_category(
+            :xcode,
+            xcode_candidates(xcode_root),
+            xcode_root,
+            cutoff,
+            process_names,
+            process_scanner
+          )
+          |> cleanup_category(
+            :rust,
+            rust_candidates(rust_roots,
+              filesystem_root: home,
+              stat_reader: rust_context.stat_reader
+            ) ++
+              temporary_rust_candidates(rust_context),
+            rust_context,
+            cutoff,
+            process_names,
+            process_scanner
+          )
+          |> cleanup_category(
+            :bazel,
+            BazelCache.candidates(home),
+            %{
+              home: home,
+              activity_scanner:
+                Keyword.get(options, :bazel_activity_scanner, &BazelCache.scan_activity/0)
+            },
+            nil,
+            process_names,
+            process_scanner
+          )
+          |> Map.update!(:removed, &Enum.reverse/1)
+          |> Map.update!(:failures, &Enum.reverse/1)
+          |> cleanup_repositories(home, cache_cutoff, options)
+
+        if Keyword.get(options, :mode) == :emergency,
+          do: result,
+          else: cleanup_sccache(result, home, cache_cutoff, options)
 
       {:error, _reason} ->
         put_in(result.skipped, %{

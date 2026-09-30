@@ -11,7 +11,6 @@ defmodule Canaryd.ConfigTest do
   test "works without any config file", %{options: options} do
     assert {:ok, config} = Config.resolve([], options)
     assert config.check_interval == Duration.minutes(5)
-    assert config.cleanup_at == %{hour: 4, minute: 0}
     assert config.build_retention == Duration.hours(24)
     refute config.retention_override
   end
@@ -25,10 +24,9 @@ defmodule Canaryd.ConfigTest do
         "CANARYD_CHECK_INTERVAL" => "10m"
       })
 
-    assert {:ok, config} = Config.resolve([build_retention: "36h", cleanup_at: "23:45"], options)
+    assert {:ok, config} = Config.resolve([build_retention: "36h"], options)
     assert config.build_retention == Duration.hours(36)
     assert config.check_interval == Duration.minutes(10)
-    assert config.cleanup_at == %{hour: 23, minute: 45}
     assert config.retention_override
     assert {:ok, config} = Config.resolve([], c.options)
     assert config.build_retention == Duration.hours(72)
@@ -40,26 +38,20 @@ defmodule Canaryd.ConfigTest do
     assert {:ok, _} = Config.resolve([check_interval: "1m"], options)
   end
 
-  test "saved schedules reach launchd and flags retain priority", c do
+  test "saved check interval reaches launchd and flags retain priority", c do
     assert {:ok, _} = Canaryd.PolicyConfig.set("check-interval", "10m", c.home)
-    assert {:ok, _} = Canaryd.PolicyConfig.set("cleanup-time", "05:30", c.home)
     assert {:ok, config} = Config.resolve([], c.options)
     assert config.check_interval == Duration.minutes(10)
-    assert config.cleanup_at == %{hour: 5, minute: 30}
-    assert [check, cleanup] = Canaryd.Setup.agent_specs("/tmp/canaryd", config)
+    assert [check] = Canaryd.Setup.agent_specs("/tmp/canaryd", config)
     assert length(check.calendar) == 6
-    assert cleanup.calendar == %{hour: 5, minute: 30}
-    assert {:ok, config} = Config.resolve([check_interval: "2m", cleanup_at: "23:45"], c.options)
+    assert {:ok, config} = Config.resolve([check_interval: "2m"], c.options)
     assert config.check_interval == Duration.minutes(2)
-    assert config.cleanup_at == %{hour: 23, minute: 45}
   end
 
   test "rejects invalid values without side effects", c do
     for overrides <- [
           [check_interval: "0s"],
           [check_interval: "1"],
-          [cleanup_at: "24:00"],
-          [cleanup_at: "4:00"],
           [build_retention: "0h"],
           [build_retention: "1m"]
         ] do

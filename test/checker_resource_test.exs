@@ -83,6 +83,39 @@ defmodule Canaryd.CheckerResourceTest do
     end)
   end
 
+  test "emergency cleanup starts below 1 GiB even during normal cooldown" do
+    usage = fn mib -> %{used_percent: 99, available_bytes: mib * 1_024 * 1_024} end
+
+    Store.with_tables(fn state, events ->
+      normal = fn ->
+        {:ok, %{removed: [], reclaimed_bytes: 0, failures: [], skipped: %{}}}
+      end
+
+      emergency = fn ->
+        send(self(), :emergency_called)
+        normal.()
+      end
+
+      Checker.check_disk_pressure(state, events, %{disk_usage: usage.(2_000)},
+        cleaner: normal,
+        emergency_cleaner: emergency,
+        notifier: fn _, _ -> :ok end,
+        now: @t0
+      )
+
+      result =
+        Checker.check_disk_pressure(state, events, %{disk_usage: usage.(900)},
+          cleaner: normal,
+          emergency_cleaner: emergency,
+          notifier: fn _, _ -> :ok end,
+          now: Duration.add(@t0, Duration.minutes(1))
+        )
+
+      assert result.actions == [:cleaned]
+      assert_received :emergency_called
+    end)
+  end
+
   test "invalid storage threshold stops pressure cleanup" do
     config =
       Path.join([

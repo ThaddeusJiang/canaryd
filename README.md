@@ -215,13 +215,22 @@ not remove its Bazel cache, and workspace backups can retain build artifacts. Th
 source may already be committed while reproducible build output continues to
 consume disk space.
 
-At 04:00 local time, Canaryd checks fixed safe roots, validates every candidate,
+When free space falls below the configured threshold, Canaryd checks fixed safe roots, validates every candidate,
 and requires Xcode/Cargo directory trees to be untouched for 24 hours by default. It
 skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
 and skips Rust cleanup while `cargo` or `rustc` is active. A service or other
 executable running from a Cargo target also protects that target. It never
 follows symbolic links or removes source, Archives, Simulator data, or Cargo
 registry caches.
+
+Below the configurable emergency threshold (1 GiB by default), Canaryd first
+checks for cleanup candidates. If it finds any, it terminates current-user
+compiler processes and their child processes. It then
+removes validated build artifacts without the age limit, including a Cargo
+`target` that was being compiled. Builds interrupted this way must be restarted.
+Running services from a target still protect it, and failed process inspection
+or termination prevents emergency deletion. The next scheduled health check
+detects the threshold; the check interval defaults to five minutes.
 
 Cargo discovery includes `~/.codex/workspace-backups` as well as live projects
 and Codex worktrees, plus Cargo targets directly under `/private/tmp`.
@@ -231,7 +240,7 @@ Only validated Cargo build directories are eligible;
 backup archives, unmerged changes, development data, and test evidence remain.
 The configured retention and active-build checks also apply to backup artifacts.
 
-The same daily run removes Bazel output bases only when their workspace marker
+The same pressure-triggered or manual run removes Bazel output bases only when their workspace marker
 and directory hash agree, and the recorded local workspace no longer exists.
 An existing workspace always keeps its cache. Canaryd rechecks server PIDs,
 the native cache lock, and the missing workspace before deletion. Busy or
@@ -269,8 +278,8 @@ canaryd config build-retention 24h   # use the default duration again
 ```
 
 The setting accepts whole hours from `1h` to `87600h` and is saved per user in
-the shared `config.conf` file described below. Both scheduled
-and manual cleanup read it at the start of each round; no restart is required.
+the shared `config.conf` file described below. Pressure-triggered and manual
+cleanup read it at the start of each round; no restart is required.
 An invalid or unreadable configuration stops that round with an error.
 
 Set the Data-volume free-space threshold for automatic guarded cleanup:
@@ -296,7 +305,7 @@ canaryd config swap-min-growth 768M         # require 768 MiB of swap growth
 canaryd config system-chip-temperature 75C  # warn at 75°C instead of 70°C
 canaryd config memory-rss 2048M             # high-memory alert threshold
 canaryd config storage-cleanup-cooldown 90m # wait 90 minutes between pressure cleanups
-canaryd config cleanup-time 05:30           # local daily cleanup time
+canaryd config storage-emergency-threshold 1024M # emergency cleanup below 1 GiB
 ```
 
 You can also edit the per-user text file printed by `canaryd config --path`
@@ -309,18 +318,18 @@ storage-threshold=20G
 swap-min-growth=768M
 build-retention=24h
 check-interval=5m
-cleanup-time=05:30
+storage-emergency-threshold=1024M
 ```
 
 The displayed units are `G` (GiB), `M` (MiB), `h` (hours), `m` (minutes),
-`C` (°C), `%`, plain counts, and `HH:MM` for local cleanup time. CLI changes
+`C` (°C), `%`, and plain counts. CLI changes
 update this same file and preserve other entries and comments. A value in
 `config.conf` takes precedence over the earlier individual setting file; if a
 key is absent, Canaryd reads its old file if present, otherwise uses its
 default. Old files are not deleted. Unknown or duplicate keys and malformed
 files fail closed; invalid policy values stop the check before automatic
 actions. Monitoring reads settings at the start of each round. Changing
-`check-interval` or `cleanup-time` also requires `canaryd start` to refresh
+`check-interval` also requires `canaryd start` to refresh
 the launchd schedule. Canaryd rejects a check interval that cannot fit its
 confirmation windows.
 
@@ -398,14 +407,16 @@ canaryd start
 canaryd status
 ```
 
-`canaryd start` enables two background tasks, including after login:
+`canaryd start` enables one background task, including after login:
 
 | Agent | Schedule | Work |
 | --- | ---: | --- |
 | Full health check | Every 5 minutes while awake; one catch-up after sleep | Check temperature, high-CPU processes, the system, GUI apps, idle memory, Simulators, Codex screen-control helpers, and CleanClip |
-| Build cleanup | Daily at 04:00 | Remove stale Xcode/Cargo outputs, including backup and temporary targets, orphaned Bazel output bases, and stale shared repository entries |
 
-Use `canaryd stop` to stop both tasks until you run `canaryd start` again.
+Build cleanup runs during the full check when Data-volume space is below the
+configured threshold, and manually with `canaryd clean`.
+
+Use `canaryd stop` to stop background checks until you run `canaryd start` again.
 Status, history, help, and manual checks do not start background tasks. You do
 not need to manage plist files. Run `canaryd start` after upgrading to refresh
 the background tasks and notification helper.
@@ -711,33 +722,31 @@ variables to override these defaults:
 | Setting | Flag | Environment variable | Default |
 | --- | --- | --- | --- |
 | Monitoring interval | `--check-interval` | `CANARYD_CHECK_INTERVAL` | `5m` |
-| Daily cleanup time (local) | `--cleanup-at` | `CANARYD_CLEANUP_AT` | `04:00` |
 | Stale build/cache retention | `--build-retention` | `CANARYD_BUILD_RETENTION` | `24h` |
 
 ```sh
-canaryd start --check-interval 2m --cleanup-at 03:30 --build-retention 48h
-CANARYD_CHECK_INTERVAL=10m CANARYD_CLEANUP_AT=05:00 canaryd start
+canaryd start --check-interval 2m --build-retention 48h
+CANARYD_CHECK_INTERVAL=10m canaryd start
 canaryd clean --build-retention 48h
 canaryd config --check-interval 5m
 ```
 
 Priority is **flags > environment > saved settings > defaults**. Persistent
-`check-interval`, `cleanup-time`, and `build-retention` settings use the shared
+`check-interval` and `build-retention` settings use the shared
 config file described above. Bare `canaryd config` lists saved/default policy
 values; `canaryd config --check-interval 5m` shows effective CLI settings for
-that invocation, not an already installed background schedule. `cleanup-time`
-is the persistent key corresponding to `--cleanup-at`.
+that invocation, not an already installed background schedule. An older
+`cleanup-time` entry is ignored after upgrade.
 
-`start` (also `install`) writes the selected schedule to launchd. Explicit
-retention overrides are stored in the cleanup job's arguments, so closing the
-terminal does not lose them. Without an explicit override, the job reads the
-saved retention/default on each run. Run `start` again to apply changed schedule
-or environment settings. A plain `start` uses current saved settings/environment,
-not values from a previous `start` invocation.
+`start` (also `install`) writes the selected check schedule to launchd and
+removes the former daily cleanup job. Run `start` again to apply a changed
+check interval. A plain `start` uses current saved settings/environment, not
+values from a previous `start` invocation.
 
-`start` and `config` accept all three flags; `clean` accepts retention only.
+`start` and `config` accept the check interval and retention flags; `clean`
+accepts retention only.
 Intervals accept `s`, `m`, or `h` units representing whole minutes that divide 24 hours;
-cleanup time requires `HH:MM` (00:00–23:59); retention accepts whole hours from
+retention accepts whole hours from
 1h through 87600h. Invalid configuration exits with status 2 before side effects.
 Safety checks, locks and active-process protection remain enforced.
 
@@ -746,7 +755,7 @@ Safety checks, locks and active-process protection remain enforced.
 Health checks use calendar slots and run when loaded. Missed checks coalesce
 into one check on wake, without replaying a backlog. Defaults remain minutes
 0, 5, ..., 55. Canaryd does not wake the Mac or prevent system sleep; display
-sleep alone does not stop checks. Daily cleanup also uses calendar scheduling.
+sleep alone does not stop checks.
 
 To preserve exact spacing and wake catch-up, check intervals must be whole
 minutes that divide 24 hours (for example 2m, 5m, 90m, 2h, or 24h).
