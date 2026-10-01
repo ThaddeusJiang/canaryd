@@ -16,8 +16,8 @@ defmodule Canaryd.DiskPressureConfigTest do
     %{home: home, path: path}
   end
 
-  test "defaults to 20 GiB and persists a changed threshold", %{home: home, path: path} do
-    assert DiskPressureConfig.read(home) == {:ok, 20 * @gib}
+  test "defaults to 10 GiB and persists a changed threshold", %{home: home, path: path} do
+    assert DiskPressureConfig.read(home) == {:ok, 10 * @gib}
     refute File.exists?(path)
 
     assert DiskPressureConfig.set("30G", home) == {:ok, 30 * @gib}
@@ -58,7 +58,7 @@ defmodule Canaryd.DiskPressureConfigTest do
     ]
 
     assert capture_io(fn -> CLI.main(["config", "storage-threshold"], options) end) ==
-             "storage threshold: 20G\n"
+             "storage threshold: 10G\n"
 
     assert capture_io(fn -> CLI.main(["config", "storage-threshold", "30G"], options) end) ==
              "storage threshold: 30G\n"

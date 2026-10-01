@@ -41,7 +41,8 @@ defmodule Canaryd.BuildProcessStop do
     if MapSet.equal?(next, pids), do: pids, else: descendants(processes, next)
   end
 
-  defp scan do
+  @doc false
+  def scan do
     with {:ok, uid} <- BazelCache.command("/usr/bin/id", ["-u"]),
          {owner, ""} when owner >= 0 <- Integer.parse(String.trim(uid)),
          {:ok, output} <-

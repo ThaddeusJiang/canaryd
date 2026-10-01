@@ -6,10 +6,13 @@ detached compiler work visible, with an explicit emergency cleanup policy.
 ## Scope
 
 - Read `/System/Volumes/Data` usage during every five-minute health check.
-- Enter guarded cleanup below the configured free-space threshold (default 20 GiB).
+- Enter guarded cleanup below the configured free-space threshold (default 10 GiB).
 - Allow users to view and change the threshold in whole GiB without restarting
   monitoring; invalid or unreadable settings stop pressure-triggered cleanup.
 - Reuse the existing fail-closed build cleanup categories and retention rules.
+- The ordinary free-space threshold defaults to 10 GiB. Ordinary cleanup does
+  not stop compilers; it may reclaim an idle target despite a build in a
+  different project and may remove redundant forgotten workspaces under spec 012.
 - Apply the configured cleanup cooldown (default one hour) and clear the pressure state after recovery.
 - Below the configurable emergency threshold (default 1024 MiB), bypass the
   ordinary cooldown, check for cleanup candidates, terminate current-user
@@ -81,7 +84,7 @@ it or remove its active build output.
 
 ### BDD-05 Change the cleanup threshold
 
-Given the default threshold is 20 GiB,
+Given the default threshold is 10 GiB,
 
 When the user sets `canaryd config storage-threshold 30G`,
 
@@ -99,4 +102,5 @@ When the next health check runs,
 Then canaryd bypasses the ordinary cleanup cooldown, terminates current-user
 build processes and descendants, and removes validated build artifacts without
 the retention age limit. If a build process remains active, candidate deletion
-does not start. Source and arbitrary worktrees are not deletion candidates.
+does not start. Unique source and registered worktrees are not deletion
+candidates; redundant forgotten checkouts retain their normal safety checks.

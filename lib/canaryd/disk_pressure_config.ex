@@ -4,7 +4,7 @@ defmodule Canaryd.DiskPressureConfig do
   alias Canaryd.{ConfigFile, Paths}
 
   @gib 1_024 * 1_024 * 1_024
-  @default_gib 20
+  @default_gib 10
   @max_gib 1_024
   @max_size 64
 

@@ -347,9 +347,9 @@ defmodule Canaryd.CLI do
       canaryd thermal-check      run one thermal check now
       canaryd status             current health snapshot
       canaryd reclaim [--dry-run]  inspect quiet Codex helpers; --dry-run preserves observations
-      canaryd clean              remove stale Xcode/Cargo artifacts and eligible Bazel caches
+      canaryd clean              remove eligible build caches and redundant forgotten workspaces
       canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
-      canaryd config storage-threshold [NG]  show or set Data-volume cleanup threshold (default: 20G, range: 1G..1024G)
+      canaryd config storage-threshold [NG]  show or set Data-volume cleanup threshold (default: 10G, range: 1G..1024G)
       canaryd config               list all decision thresholds
       canaryd config --path        print the editable config file path
       canaryd config <key> [value]  show or set one threshold (e.g. swap-min-growth 768M)

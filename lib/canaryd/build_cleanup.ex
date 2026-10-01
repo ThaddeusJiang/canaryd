@@ -14,11 +14,15 @@ defmodule Canaryd.BuildCleanup do
     ArtifactTree,
     BazelCache,
     BazelRepositoryCache,
+    BuildActivity,
     BuildCleanupConfig,
     BuildProcessStop,
     Duration,
     FileLock,
-    Paths
+    GitWorktrees,
+    JjWorkspaces,
+    Paths,
+    WorkspaceActivity
   }
 
   @cargo_signature "Signature: 8a477f597d28d172789f06886806bc55"
@@ -145,7 +149,8 @@ defmodule Canaryd.BuildCleanup do
       home: home,
       tmp_root: Keyword.get(options, :rust_tmp_root, "/private/tmp"),
       stat_reader: Keyword.get(options, :stat_reader, &File.lstat/1),
-      activity_scanner: Keyword.get(options, :rust_activity_scanner, &ArtifactProcesses.scan/0)
+      activity_scanner: Keyword.get(options, :rust_activity_scanner, &ArtifactProcesses.scan/0),
+      build_activity_scanner: Keyword.get(options, :build_activity_scanner, &BuildActivity.scan/0)
     }
 
     xcode_root = Path.join([home, "Library", "Developer", "Xcode", "DerivedData"])
@@ -153,7 +158,15 @@ defmodule Canaryd.BuildCleanup do
     result = %{
       removed: [],
       reclaimed_bytes: 0,
-      skipped: %{xcode: nil, rust: nil, bazel: nil, bazel_repository: nil, sccache: nil},
+      skipped: %{
+        xcode: nil,
+        rust: nil,
+        bazel: nil,
+        bazel_repository: nil,
+        sccache: nil,
+        jj_workspace: nil,
+        git_worktree: nil
+      },
       failures: [],
       sccache: nil
     }
@@ -168,6 +181,7 @@ defmodule Canaryd.BuildCleanup do
           end
 
         cache_cutoff = cutoff || DateTime.to_unix(now, :second)
+        workspace_cutoff = now |> Duration.add(-retention) |> DateTime.to_unix(:second)
 
         result =
           if Keyword.get(options, :mode) == :emergency,
@@ -176,6 +190,14 @@ defmodule Canaryd.BuildCleanup do
 
         result =
           result
+          |> cleanup_workspaces(
+            home,
+            rust_roots,
+            workspace_cutoff,
+            process_names,
+            process_scanner,
+            options
+          )
           |> cleanup_category(
             :xcode,
             xcode_candidates(xcode_root),
@@ -222,9 +244,47 @@ defmodule Canaryd.BuildCleanup do
           rust: :process_scan_unavailable,
           bazel: :process_scan_unavailable,
           bazel_repository: :process_scan_unavailable,
-          sccache: :process_scan_unavailable
+          sccache: :process_scan_unavailable,
+          jj_workspace: :process_scan_unavailable,
+          git_worktree: :process_scan_unavailable
         })
     end
+  end
+
+  defp cleanup_workspaces(result, home, roots, cutoff, process_names, process_scanner, options) do
+    stat_reader = Keyword.get(options, :stat_reader, &File.lstat/1)
+
+    context = %{
+      home: home,
+      stat_reader: stat_reader,
+      lister: Keyword.get(options, :jj_workspace_lister, &JjWorkspaces.list_workspaces/1),
+      activity_scanner: Keyword.get(options, :rust_activity_scanner, &ArtifactProcesses.scan/0),
+      cwd_scanner: Keyword.get(options, :workspace_cwd_scanner, &WorkspaceActivity.scan/0)
+    }
+
+    roots = Keyword.get(options, :workspace_roots, roots)
+
+    result
+    |> cleanup_category(
+      :jj_workspace,
+      JjWorkspaces.candidates(roots,
+        home: home,
+        workspace_lister: context.lister,
+        stat_reader: stat_reader
+      ),
+      context,
+      cutoff,
+      process_names,
+      process_scanner
+    )
+    |> cleanup_category(
+      :git_worktree,
+      GitWorktrees.candidates(roots, home: home, stat_reader: stat_reader),
+      context,
+      cutoff,
+      process_names,
+      process_scanner
+    )
   end
 
   defp cleanup_sccache(result, home, cutoff, options) do
@@ -339,6 +399,28 @@ defmodule Canaryd.BuildCleanup do
     end
   end
 
+  defp cleanup_candidate(kind, path, context, cutoff, process_scanner)
+       when kind in [:jj_workspace, :git_worktree] do
+    with true <- workspace_valid?(kind, path, context),
+         {:ok, stat} <- context.stat_reader.(path),
+         identity = artifact_identity(stat),
+         {:stale, bytes} <- tree_status(path, cutoff, context.stat_reader),
+         revalidate = fn ->
+           workspace_ready(kind, path, context, identity, cutoff, process_scanner)
+         end,
+         :ok <- revalidate.(),
+         {:ok, _removed_path} <- ArtifactTree.remove(path, revalidate) do
+      {:removed, bytes}
+    else
+      false -> :kept
+      :recent -> :kept
+      :kept -> :kept
+      {:skip, _reason} = skip -> skip
+      {:error, _path, reason} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp cleanup_candidate(kind, path, validation_root, cutoff, process_scanner) do
     with true <- valid_candidate?(kind, path, validation_root),
          {:stale, bytes} <- tree_status(path, cutoff),
@@ -363,9 +445,9 @@ defmodule Canaryd.BuildCleanup do
 
   defp rust_ready(path, context, identity, cutoff, process_scanner) do
     with {:ok, process_names} <- process_scanner.(),
-         false <- blocked?(:rust, process_names),
          {:ok, activity} <- context.activity_scanner.(),
          :idle <- ArtifactProcesses.activity(path, activity),
+         :idle <- rust_build_activity(path, process_names, context),
          true <- valid_candidate?(:rust, path, context),
          {:ok, stat} <- context.stat_reader.(path),
          ^identity <- artifact_identity(stat),
@@ -373,11 +455,48 @@ defmodule Canaryd.BuildCleanup do
       :ok
     else
       false -> :kept
-      true -> {:error, :active_build}
       :recent -> :kept
       reason when reason in [:active_target, :unverifiable_target] -> {:skip, reason}
       {:error, _reason} -> {:error, :process_scan_unavailable}
       _identity -> :kept
+    end
+  end
+
+  defp workspace_ready(kind, path, context, identity, cutoff, process_scanner) do
+    with {:ok, _process_names} <- process_scanner.(),
+         {:ok, activity} <- context.activity_scanner.(),
+         :idle <- ArtifactProcesses.activity(path, activity),
+         {:ok, cwds} <- context.cwd_scanner.(),
+         :idle <- WorkspaceActivity.activity(path, cwds),
+         true <- workspace_valid?(kind, path, context),
+         {:ok, stat} <- context.stat_reader.(path),
+         ^identity <- artifact_identity(stat),
+         {:stale, _bytes} <- tree_status(path, cutoff, context.stat_reader) do
+      :ok
+    else
+      false -> :kept
+      :recent -> :kept
+      reason when reason in [:active_target, :unverifiable_target] -> {:skip, reason}
+      {:error, _reason} -> {:error, :process_scan_unavailable}
+      _ -> :kept
+    end
+  end
+
+  defp workspace_valid?(:jj_workspace, path, context),
+    do: JjWorkspaces.valid_candidate?(path, context)
+
+  defp workspace_valid?(:git_worktree, path, context),
+    do: GitWorktrees.valid_candidate?(path, context)
+
+  defp rust_build_activity(path, process_names, context) do
+    if MapSet.disjoint?(@rust_processes, process_names) do
+      :idle
+    else
+      case context.build_activity_scanner.() do
+        {:ok, %{cwds: []}} -> :unverifiable_target
+        {:ok, snapshot} -> BuildActivity.activity(path, snapshot)
+        _ -> {:error, :unavailable}
+      end
     end
   end
 
@@ -464,8 +583,8 @@ defmodule Canaryd.BuildCleanup do
   defp blocked?(:xcode, process_names),
     do: not MapSet.disjoint?(@xcode_processes, process_names)
 
-  defp blocked?(:rust, process_names),
-    do: not MapSet.disjoint?(@rust_processes, process_names)
+  defp blocked?(:rust, _process_names), do: false
+  defp blocked?(kind, _process_names) when kind in [:jj_workspace, :git_worktree], do: false
 
   defp xcode_candidates(root) do
     if directory_without_symlink?(root) do

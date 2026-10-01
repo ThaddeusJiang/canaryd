@@ -10,35 +10,35 @@ defmodule Canaryd.DiskPressureMonitorTest do
 
   test "triggers once on entry and again only after cooldown" do
     {state, [{:cleanup, _}]} =
-      DiskPressureMonitor.evaluate(DiskPressureMonitor.default_state(), usage(19), @t0)
+      DiskPressureMonitor.evaluate(DiskPressureMonitor.default_state(), usage(9), @t0)
 
     {state, []} =
-      DiskPressureMonitor.evaluate(state, usage(19), Duration.add(@t0, Duration.minutes(5)))
+      DiskPressureMonitor.evaluate(state, usage(9), Duration.add(@t0, Duration.minutes(5)))
 
     {state, []} =
-      DiskPressureMonitor.evaluate(state, usage(19), Duration.add(@t0, Duration.minutes(59)))
+      DiskPressureMonitor.evaluate(state, usage(9), Duration.add(@t0, Duration.minutes(59)))
 
     {_state, [{:cleanup, _}]} =
-      DiskPressureMonitor.evaluate(state, usage(19), Duration.add(@t0, Duration.minutes(60)))
+      DiskPressureMonitor.evaluate(state, usage(9), Duration.add(@t0, Duration.minutes(60)))
   end
 
   test "recovery does not bypass cooldown when free space oscillates" do
     {state, [{:cleanup, _}]} =
-      DiskPressureMonitor.evaluate(DiskPressureMonitor.default_state(), usage(19), @t0)
+      DiskPressureMonitor.evaluate(DiskPressureMonitor.default_state(), usage(9), @t0)
 
     {state, []} =
-      DiskPressureMonitor.evaluate(state, usage(20), Duration.add(@t0, Duration.minutes(5)))
+      DiskPressureMonitor.evaluate(state, usage(10), Duration.add(@t0, Duration.minutes(5)))
 
     {state, []} =
-      DiskPressureMonitor.evaluate(state, usage(19), Duration.add(@t0, Duration.minutes(10)))
+      DiskPressureMonitor.evaluate(state, usage(9), Duration.add(@t0, Duration.minutes(10)))
 
     {_state, [{:cleanup, _}]} =
-      DiskPressureMonitor.evaluate(state, usage(19), Duration.add(@t0, Duration.minutes(60)))
+      DiskPressureMonitor.evaluate(state, usage(9), Duration.add(@t0, Duration.minutes(60)))
   end
 
   test "ignores used percentage when enough space is available" do
     {state, [{:cleanup, _}]} =
-      DiskPressureMonitor.evaluate(DiskPressureMonitor.default_state(), usage(19), @t0)
+      DiskPressureMonitor.evaluate(DiskPressureMonitor.default_state(), usage(9), @t0)
 
     {state, []} =
       DiskPressureMonitor.evaluate(

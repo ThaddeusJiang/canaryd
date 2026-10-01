@@ -40,7 +40,7 @@
 ---
 
 Canaryd is a local macOS watchdog. Every five minutes it checks real system and
-application behavior; once a day it reclaims validated stale build output. It
+application behavior; below the configured free-space threshold it reclaims validated stale build output. It
 confirms suspicious state before acting and keeps successful background
 recovery quiet. State, events, and logs stay on the Mac.
 
@@ -215,12 +215,13 @@ not remove its Bazel cache, and workspace backups can retain build artifacts. Th
 source may already be committed while reproducible build output continues to
 consume disk space.
 
-When free space falls below the configured threshold, Canaryd checks fixed safe roots, validates every candidate,
-and requires Xcode/Cargo directory trees to be untouched for 24 hours by default. It
-skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active,
-and skips Rust cleanup while `cargo` or `rustc` is active. A service or other
-executable running from a Cargo target also protects that target. It never
-follows symbolic links or removes source, Archives, Simulator data, or Cargo
+When free space falls below the configured threshold (10 GiB by default),
+Canaryd checks fixed safe roots and requires Xcode/Cargo directory trees to be
+untouched for 24 hours by default. Ordinary cleanup does not stop compilers.
+It skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active.
+A running Cargo/Rust build protects its own target; an unrelated build does not
+block an idle target. A service running from a target also protects it. Canaryd
+never follows symbolic links or removes Archives, Simulator data, or Cargo
 registry caches.
 
 Below the configurable emergency threshold (1 GiB by default), Canaryd first
@@ -239,6 +240,14 @@ markers; temporary project containers are not searched recursively.
 Only validated Cargo build directories are eligible;
 backup archives, unmerged changes, development data, and test evidence remain.
 The configured retention and active-build checks also apply to backup artifacts.
+
+Ordinary cleanup can remove a forgotten JJ workspace or an orphaned Git
+worktree only when the directory is no longer registered, is older than the
+retention period, and its files match the repository HEAD apart from recognized
+build caches. Unique or unknown files, nested repositories, symlinks, missing
+VCS evidence, and processes using the directory keep it. Registered worktrees
+remain untouched. Workspace cleanup also runs in the emergency round, but keeps
+the retention and content checks.
 
 The same pressure-triggered or manual run removes Bazel output bases only when their workspace marker
 and directory hash agree, and the recorded local workspace no longer exists.
@@ -285,7 +294,7 @@ An invalid or unreadable configuration stops that round with an error.
 Set the Data-volume free-space threshold for automatic guarded cleanup:
 
 ```sh
-canaryd config storage-threshold        # show the current threshold (default: 20G)
+canaryd config storage-threshold        # show the current threshold (default: 10G)
 canaryd config storage-threshold 30G    # start cleanup below 30 GiB available
 ```
 
@@ -314,7 +323,7 @@ line; blank lines and lines beginning with `#` are allowed:
 
 ```text
 # Free space on the Data volume before guarded cleanup
-storage-threshold=20G
+storage-threshold=10G
 swap-min-growth=768M
 build-retention=24h
 check-interval=5m
@@ -494,9 +503,9 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd status` | Show the current health snapshot and recent events |
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
-| `canaryd clean` | Clean stale Xcode/Cargo outputs, orphaned Bazel output bases, and stale shared repository entries now |
+| `canaryd clean` | Clean eligible build caches and redundant, unregistered workspaces now |
 | `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
-| `canaryd config storage-threshold [30G]` | Show or save the Data-volume cleanup threshold; defaults to 20 GiB |
+| `canaryd config storage-threshold [30G]` | Show or save the Data-volume cleanup threshold; defaults to 10 GiB |
 | `canaryd config [key [value]]` | List, show, or save the other monitoring, notification, automatic-action, and schedule thresholds |
 | `canaryd reclaim [--dry-run]` | Inspect quiet Codex helpers; dry run preserves observations; no Codex termination |
 | `canaryd report [--json] [--since ISO8601]` | Summarize or export all recorded events for statistics and AI analysis |
@@ -547,10 +556,10 @@ The shared safety rules are:
   protected from general automatic actions.
 - A newer user clipboard write always wins over CleanClip probe restoration.
 - High-memory applications receive alerts only; Canaryd does not terminate them.
-- Data-volume pressure below the configured free-space threshold (default 20 GiB)
-  starts only the existing fail-closed build cleanup, with a one-hour cooldown. It never
-  broadens cleanup to model caches, Docker volumes, source, active worktrees,
-  or arbitrary user files.
+- Data-volume pressure below the configured free-space threshold (default 10 GiB)
+  starts guarded cleanup without stopping compilers, with a one-hour cooldown.
+  Only redundant, unregistered worktrees are eligible; active or unique source
+  and arbitrary user files remain protected.
 - Swap growth is a global signal. Canaryd reports related high-RSS applications
   after sustained growth but does not claim per-process causation or terminate
   them automatically.
@@ -575,7 +584,7 @@ The shared safety rules are:
   It does not wait for whole-Mac user idle.
 - Playwright Chrome cleanup revalidates an exact PID, sends only `SIGTERM`, and
   never stores the command line used for classification.
-- Xcode/Cargo cleanup pauses while related tools are active and removes only
+- Ordinary Xcode/Cargo cleanup does not stop related tools and removes only
   validated, reproducible directories whose complete trees have reached the
   configured retention (default 24h), including Cargo targets in Codex workspace
   backups and directly under `/private/tmp`. Targets containing running
@@ -589,7 +598,8 @@ The shared safety rules are:
 - Workspace backup containers, archives, unmerged changes, development data,
   and test evidence outside validated build directories are retained.
 - Build cleanup never removes Xcode Archives, DeviceSupport, SDKs, UserData,
-  Simulator data, Cargo registry or git caches, installed binaries, or source.
+  Simulator data, Cargo registry or git caches, installed binaries, or unique
+  source content.
 - App restart, prompt, and close actions use configurable cooldowns (one hour
   by default).
 - Automatic termination can still interrupt background work or expose an
@@ -603,6 +613,7 @@ For exact behavior, see the maintained feature specifications:
 - [Idle memory process monitor](./docs/specs/007-idle-memory-process-monitor.md)
 - [Idle Simulator shutdown](./docs/specs/008-idle-simulator-shutdown.md)
 - [Stale build cleanup](./docs/specs/009-stale-build-cleanup.md)
+- [Forgotten workspace cleanup](./docs/specs/012-forgotten-workspace-cleanup.md)
 - [Storage pressure and process observation](./docs/specs/013-storage-pressure-and-process-observation.md)
 - [Configurable decision thresholds](./docs/specs/014-configurable-decision-thresholds.md)
 - [Idle Codex process cleanup](./docs/specs/010-idle-codex-process-cleanup.md)

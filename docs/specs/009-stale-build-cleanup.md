@@ -21,6 +21,8 @@ archives, developer credentials, Simulator data, or active build artifacts.
     `~/Library/Caches/bazel/_bazel_*/cache/repos/v1`.
   - Cleanup below the configured free-space threshold during health checks.
   - A manual `canaryd clean` command.
+  - Redundant forgotten JJ workspaces and orphaned Git worktrees under the
+    strict checks in [spec 012](./012-forgotten-workspace-cleanup.md).
   - A per-user retention setting, defaulting to 24 hours, shared by automatic
     and manual cleanup.
   - Local event history with counts, reclaimed bytes, and bounded skip reasons.
@@ -98,9 +100,9 @@ not start monitoring, install notification helpers or run cleanup.
    the configured retention period; the exact cutoff is eligible.
 3. Skip all Xcode candidates while a current-user `Xcode`, `Simulator`,
    `xcodebuild`, or `xctest` process is active.
-4. Skip all Rust candidates while a current-user `cargo` or `rustc` process is
-   active. Independently retain a target containing any running executable,
-   even when no compiler is active. Resolve executable aliases, preserve
+4. Inspect the working directory of current-user build processes and retain a
+   Cargo target used by an active build. Independently retain a target
+   containing any running executable. Resolve executable aliases, preserve
    path-component boundaries, and treat uncertain activity as protection.
    A protected target does not block unrelated idle targets.
 5. If process inspection is unavailable, delete nothing.
@@ -216,8 +218,8 @@ When:
 - The cleanup command runs.
 
 Then:
-- Canaryd skips the affected build class, or all cleanup when inspection is
-  unavailable.
+- Canaryd skips the affected target or Xcode build class, or all cleanup when
+  inspection is unavailable.
 - Canaryd records the bounded skip reason.
 
 ### BDD-04 Remove the former daily task

@@ -400,12 +400,37 @@ defmodule Canaryd.BuildCleanupTest do
     result =
       run(root,
         now: ~U[2030-01-01 00:00:00Z],
-        process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end
+        process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
+        build_activity_scanner: fn ->
+          {:ok, %{cwds: [Path.dirname(candidate)]}}
+        end
       )
 
     assert result.removed == []
-    assert result.skipped.rust == :active_build
+    assert result.skipped.rust == :active_target
     assert File.dir?(candidate)
+  end
+
+  test "ordinary pressure cleanup can remove an idle target while cargo builds elsewhere", %{
+    root: root
+  } do
+    candidate = cargo_target(Path.join([root, "Projects", "idle", "target"]))
+
+    result =
+      run(root,
+        now: ~U[2030-01-01 00:00:00Z],
+        process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
+        build_stopper: fn -> flunk("ordinary cleanup must not stop compilers") end,
+        build_activity_scanner: fn ->
+          {:ok, %{cwds: [Path.join(root, "Projects/active")]}}
+        end,
+        rust_activity_scanner: fn ->
+          {:ok, %{paths: [Path.join(root, "Projects/active/target")], names: MapSet.new()}}
+        end
+      )
+
+    assert [%{kind: :rust, path: ^candidate}] = result.removed
+    refute File.exists?(candidate)
   end
 
   test "removes read-only backup directories and preserves external hard links", %{root: root} do
@@ -585,17 +610,20 @@ defmodule Canaryd.BuildCleanupTest do
       run(root,
         now: ~U[2030-01-01 00:00:00Z],
         rust_roots: [Path.join(root, "Projects")],
-        process_scanner: fn -> {:ok, MapSet.new(["xcodebuild", "cargo"])} end
+        process_scanner: fn -> {:ok, MapSet.new(["xcodebuild", "cargo"])} end,
+        build_activity_scanner: fn -> {:ok, %{cwds: [Path.dirname(cargo_candidate)]}} end
       )
 
     assert result.removed == []
 
     assert result.skipped == %{
              xcode: :active_build,
-             rust: :active_build,
+             rust: :active_target,
              bazel: nil,
              bazel_repository: nil,
-             sccache: nil
+             sccache: nil,
+             jj_workspace: nil,
+             git_worktree: nil
            }
 
     assert File.dir?(xcode_candidate)
@@ -620,7 +648,9 @@ defmodule Canaryd.BuildCleanupTest do
              rust: :process_scan_unavailable,
              bazel: :process_scan_unavailable,
              bazel_repository: :process_scan_unavailable,
-             sccache: :process_scan_unavailable
+             sccache: :process_scan_unavailable,
+             jj_workspace: :process_scan_unavailable,
+             git_worktree: :process_scan_unavailable
            }
 
     assert File.dir?(xcode_candidate)
@@ -645,11 +675,12 @@ defmodule Canaryd.BuildCleanupTest do
       run(root,
         now: ~U[2030-01-01 00:00:00Z],
         rust_roots: [Path.join(root, "Projects")],
-        process_scanner: process_scanner
+        process_scanner: process_scanner,
+        build_activity_scanner: fn -> {:ok, %{cwds: [Path.dirname(cargo_candidate)]}} end
       )
 
     assert result.removed == []
-    assert result.skipped.rust == :active_build
+    assert result.skipped.rust == :active_target
     assert File.dir?(cargo_candidate)
   end
 
