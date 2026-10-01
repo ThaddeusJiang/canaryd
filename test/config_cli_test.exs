@@ -6,14 +6,14 @@ defmodule Canaryd.ConfigCLITest do
   test "config shows flag and environment values without installing anything" do
     output =
       capture_io(fn ->
-        CLI.main(["config", "--check-interval", "2m", "--cleanup-at", "22:30"],
+        CLI.main(["config", "--check-interval", "2m"],
           env: %{"CANARYD_BUILD_RETENTION" => "48h"},
           start: fn -> flunk("read-only command") end
         )
       end)
 
     assert output =~ "check-interval: 120s"
-    assert output =~ "cleanup-at: 22:30"
+    refute output =~ "cleanup-at"
     assert output =~ "build-retention: 48h"
   end
 
@@ -47,22 +47,16 @@ defmodule Canaryd.ConfigCLITest do
            end) =~ "CANARYD_CHECK_INTERVAL"
   end
 
-  test "launchd schedule and clean arguments preserve explicit settings" do
+  test "launchd check schedule preserves explicit interval" do
     assert {:ok, config} =
-             Config.resolve([check_interval: "2m", cleanup_at: "06:35", build_retention: "48h"],
+             Config.resolve([check_interval: "2m", build_retention: "48h"],
                env: %{}
              )
 
-    [check, clean] = Setup.agent_specs("/tmp/canaryd", config)
+    [check] = Setup.agent_specs("/tmp/canaryd", config)
     assert check.calendar == Enum.map(0..29, &%{minute: &1 * 2})
-    assert clean.calendar == %{hour: 6, minute: 35}
-    assert clean.arguments == ["--build-retention", "48h"]
     assert Setup.agent_plist(check) =~ "<key>StartCalendarInterval</key>"
     refute Setup.agent_plist(check) =~ "<key>StartInterval</key>"
-    assert Setup.agent_plist(clean) =~ "<string>--build-retention</string>"
-    assert Setup.agent_plist(clean) =~ "<string>48h</string>"
-    [_, default_clean] = Setup.agent_specs("/tmp/canaryd")
-    assert default_clean.arguments == []
   end
 
   test "custom calendar preserves uniform spacing across midnight" do
@@ -74,7 +68,7 @@ defmodule Canaryd.ConfigCLITest do
       assert {:ok, config} =
                Config.resolve([check_interval: raw, build_retention: "24h"], env: %{})
 
-      [check, _] = Setup.agent_specs("/tmp/canaryd", config)
+      [check] = Setup.agent_specs("/tmp/canaryd", config)
       assert length(check.calendar) == count
       assert hd(check.calendar) == first
       assert List.last(check.calendar) == last

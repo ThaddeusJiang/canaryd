@@ -44,11 +44,11 @@ defmodule Canaryd.PolicyConfig do
     unresponsive_confirmations: {:integer, 2, 2, 20, ""},
     unresponsive_restart_cooldown: {:minutes, Duration.hours(1), 15, 1_440, "m"},
     storage_cleanup_cooldown: {:minutes, Duration.hours(1), 15, 1_440, "m"},
+    storage_emergency_threshold: {:integer, 1_024, 128, 4_096, "M"},
     cleanclip_probe_interval: {:minutes, Duration.minutes(30), 1, 1_440, "m"},
     cleanclip_restart_cooldown: {:minutes, Duration.hours(1), 15, 1_440, "m"},
     cleanclip_failure_confirmations: {:integer, 3, 1, 20, ""},
-    check_interval: {:integer, 5, 1, 60, "m"},
-    cleanup_time: {:clock, {4, 0}, nil, nil, ""}
+    check_interval: {:integer, 5, 1, 60, "m"}
   }
 
   def defaults do
@@ -109,17 +109,11 @@ defmodule Canaryd.PolicyConfig do
 
   def set(_name, _text, _home), do: {:error, :invalid_value}
 
-  def format(:cleanup_time, {hour, minute}) do
-    :io_lib.format("~2..0B:~2..0B", [hour, minute]) |> IO.iodata_to_binary()
-  end
-
   def format(key, value) do
     {type, _default, _min, _max, suffix} = Map.fetch!(@schema, key)
     number = if type == :minutes, do: div(value, Duration.minutes(1)), else: value
     "#{number}#{suffix}"
   end
-
-  def description(:cleanup_time), do: "default 04:00, local clock 00:00..23:59"
 
   def description(key) do
     {_type, default, min, max, suffix} = Map.fetch!(@schema, key)
@@ -180,20 +174,6 @@ defmodule Canaryd.PolicyConfig do
 
   defp path(key, home) do
     Path.join([home, "Library", "Application Support", "canaryd", "thresholds", name(key)])
-  end
-
-  defp parse(:cleanup_time, text) when is_binary(text) and byte_size(text) <= @max_size do
-    case Regex.run(~r/\A([0-2][0-9]):([0-5][0-9])\z/, String.trim(text)) do
-      [_, hour, minute] ->
-        hour = String.to_integer(hour)
-
-        if hour <= 23,
-          do: {:ok, {hour, String.to_integer(minute)}},
-          else: {:error, :invalid_value}
-
-      _ ->
-        {:error, :invalid_value}
-    end
   end
 
   defp parse(key, text) when is_binary(text) and byte_size(text) <= @max_size do
