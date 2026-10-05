@@ -1,6 +1,6 @@
 defmodule Canaryd.ReportStoreTest do
   use ExUnit.Case, async: false
-  alias Canaryd.Store
+  alias Canaryd.{FileLock, Store}
 
   setup do
     dir = Path.join(System.tmp_dir!(), "canaryd-report-#{System.unique_integer([:positive])}")
@@ -27,7 +27,7 @@ defmodule Canaryd.ReportStoreTest do
     assert Enum.all?(events, &(&1.idle_duration == 2000))
     assert File.read!(path) == before
     refute File.exists?(Path.join(dir, "state.dets"))
-    refute File.exists?(Path.join(dir, "canaryd.lock"))
+    assert File.regular?(Path.join(dir, "canaryd.lock"))
   end
 
   test "missing history is empty and corrupt history is preserved", %{dir: dir} do
@@ -37,13 +37,27 @@ defmodule Canaryd.ReportStoreTest do
     File.write!(path, "broken database")
     assert {:error, _} = Store.read_events(dir)
     assert File.read!(path) == "broken database"
-    refute File.exists?(Path.join(dir, "canaryd.lock"))
+    assert File.regular?(Path.join(dir, "canaryd.lock"))
+  end
+
+  test "ignores a lock file left by a stopped process", %{dir: dir} do
+    path = Path.join(dir, "canaryd.lock")
+    File.write!(path, "existing lock")
+    assert {:ok, []} = Store.read_events(dir)
+    assert File.read!(path) == "existing lock"
   end
 
   test "respects an active writer lock", %{dir: dir} do
     path = Path.join(dir, "canaryd.lock")
-    File.write!(path, "existing lock")
-    assert {:error, :locked} = Store.read_events(dir)
-    assert File.read!(path) == "existing lock"
+
+    assert :ok =
+             FileLock.with_lock(
+               path,
+               fn ->
+                 assert {:error, :locked} = Store.read_events(dir)
+                 :ok
+               end,
+               create: true
+             )
   end
 end

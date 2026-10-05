@@ -21,7 +21,7 @@ defmodule Canaryd.StoreTest do
   test "returns a full disk lock error without running the check" do
     assert Store.with_tables(
              fn _, _ -> flunk("the check must not run without storage") end,
-             lock_opener: fn _, _ -> {:error, :enospc} end
+             lock_runner: fn _, _, _ -> {:error, :enospc} end
            ) == {:error, :enospc}
   end
 
