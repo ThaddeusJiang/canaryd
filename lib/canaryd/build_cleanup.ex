@@ -184,28 +184,7 @@ defmodule Canaryd.BuildCleanup do
         workspace_cutoff = now |> Duration.add(-retention) |> DateTime.to_unix(:second)
 
         result =
-          if Keyword.get(options, :mode) == :emergency,
-            do: cleanup_sccache(result, home, cache_cutoff, options),
-            else: result
-
-        result =
           result
-          |> cleanup_workspaces(
-            home,
-            rust_roots,
-            workspace_cutoff,
-            process_names,
-            process_scanner,
-            options
-          )
-          |> cleanup_category(
-            :xcode,
-            xcode_candidates(xcode_root),
-            xcode_root,
-            cutoff,
-            process_names,
-            process_scanner
-          )
           |> cleanup_category(
             :rust,
             rust_candidates(rust_roots,
@@ -214,6 +193,22 @@ defmodule Canaryd.BuildCleanup do
             ) ++
               temporary_rust_candidates(rust_context),
             rust_context,
+            cutoff,
+            process_names,
+            process_scanner
+          )
+
+        result =
+          if Keyword.get(options, :mode) == :emergency,
+            do: cleanup_sccache(result, home, cache_cutoff, options),
+            else: result
+
+        result =
+          result
+          |> cleanup_category(
+            :xcode,
+            xcode_candidates(xcode_root),
+            xcode_root,
             cutoff,
             process_names,
             process_scanner
@@ -229,6 +224,14 @@ defmodule Canaryd.BuildCleanup do
             nil,
             process_names,
             process_scanner
+          )
+          |> cleanup_workspaces(
+            home,
+            rust_roots,
+            workspace_cutoff,
+            process_names,
+            process_scanner,
+            options
           )
           |> Map.update!(:removed, &Enum.reverse/1)
           |> Map.update!(:failures, &Enum.reverse/1)

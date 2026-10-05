@@ -21,6 +21,29 @@ defmodule Canaryd.BuildCleanupTest do
     assert BuildCleanup.retention() == Duration.hours(24)
   end
 
+  test "reclaims stale Rust targets before inspecting workspaces", %{root: root} do
+    projects = Path.join(root, "Projects")
+    repo = Path.join(projects, "repo")
+    target = cargo_target(Path.join(repo, "target"))
+    File.mkdir_p!(Path.join(repo, ".git"))
+    File.mkdir_p!(Path.join(repo, ".jj"))
+    File.mkdir_p!(Path.join(repo, "_jj_workspaces"))
+
+    result =
+      run(root,
+        now: ~U[2030-01-01 00:00:00Z],
+        rust_roots: [projects],
+        jj_workspace_lister: fn ^repo ->
+          send(self(), :workspace_scan_started)
+          refute File.exists?(target)
+          {:error, :unavailable}
+        end
+      )
+
+    assert_received :workspace_scan_started
+    assert Enum.any?(result.removed, &(&1.path == target))
+  end
+
   test "emergency stops builds before removing recent validated artifacts", %{root: root} do
     target = cargo_target(Path.join([root, "Projects", "example", "target"]))
     source = Path.join([root, "Projects", "example", "src", "main.rs"])
@@ -563,8 +586,8 @@ defmodule Canaryd.BuildCleanupTest do
       )
 
     assert Enum.map(stale.removed, &{&1.kind, &1.path}) == [
-             {:xcode, xcode_candidate},
-             {:rust, cargo_candidate}
+             {:rust, cargo_candidate},
+             {:xcode, xcode_candidate}
            ]
 
     refute File.exists?(xcode_candidate)
