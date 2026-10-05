@@ -18,6 +18,13 @@ defmodule Canaryd.StoreTest do
     %{table: table}
   end
 
+  test "returns a full disk lock error without running the check" do
+    assert Store.with_tables(
+             fn _, _ -> flunk("the check must not run without storage") end,
+             lock_opener: fn _, _ -> {:error, :enospc} end
+           ) == {:error, :enospc}
+  end
+
   test "lists every matching event", %{table: table} do
     Store.log_event(table, :thermal, :heat_alerted, %{name: "First"})
     Store.log_event(table, :thermal, :notification_test, %{name: "Second"})

@@ -17,32 +17,41 @@ defmodule Canaryd.Store do
   def dir, do: Paths.support_dir()
 
   @doc "Run `fun` with both tables open, guarded by an exclusive lockfile."
-  def with_tables(fun) do
+  def with_tables(fun, options \\ []) do
     dir = dir()
     lockfile = Path.join(dir, "canaryd.lock")
-    File.mkdir_p!(dir)
+    lock_opener = Keyword.get(options, :lock_opener, &File.open/2)
 
-    case File.open(lockfile, [:write, :exclusive]) do
-      {:error, :eexist} ->
-        {:error, :locked}
+    with :ok <- File.mkdir_p(dir) do
+      case lock_opener.(lockfile, [:write, :exclusive]) do
+        {:error, :eexist} ->
+          {:error, :locked}
 
-      {:ok, lock} ->
-        try do
-          {:ok, state} = open_table(:state, dir)
-          {:ok, events} = open_table(:events, dir)
+        {:error, reason} ->
+          {:error, reason}
 
+        {:ok, lock} ->
           try do
-            fun.(state, events)
+            with {:ok, state} <- open_table(:state, dir) do
+              try do
+                with {:ok, events} <- open_table(:events, dir) do
+                  try do
+                    fun.(state, events)
+                  after
+                    :dets.sync(events)
+                    :dets.close(events)
+                  end
+                end
+              after
+                :dets.sync(state)
+                :dets.close(state)
+              end
+            end
           after
-            :dets.sync(state)
-            :dets.sync(events)
-            :dets.close(state)
-            :dets.close(events)
+            File.close(lock)
+            File.rm(lockfile)
           end
-        after
-          File.close(lock)
-          File.rm(lockfile)
-        end
+      end
     end
   end
 
@@ -51,14 +60,9 @@ defmodule Canaryd.Store do
 
     case :dets.open_file(name, file: path, type: :set, repair: true) do
       {:ok, table} -> {:ok, table}
-      {:error, {:needs_repair, _}} -> repair_and_open(name, path)
-      {:error, _} -> repair_and_open(name, path)
+      {:error, {:file_error, _path, :enospc}} -> {:error, :enospc}
+      {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp repair_and_open(name, path) do
-    File.rm(List.to_string(path))
-    :dets.open_file(name, file: path, type: :set)
   end
 
   @doc "Get latest state for a target, or a fresh default."

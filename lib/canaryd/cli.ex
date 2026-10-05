@@ -7,6 +7,7 @@ defmodule Canaryd.CLI do
     ConfigFile,
     Checker,
     CodexProcessMonitor,
+    Disk,
     DiskPressureConfig,
     Duration,
     MemoryMonitor,
@@ -275,16 +276,15 @@ defmodule Canaryd.CLI do
     |> print_policy_value(PolicyConfig.key(name))
   end
 
-  defp dispatch(argv, _options), do: dispatch(argv)
+  defp dispatch(["check"], options) do
+    checker = Keyword.get(options, :checker, &Checker.run/0)
 
-  defp dispatch([command]) when command in ["--version", "version"] do
-    IO.puts("canaryd #{Application.spec(:canaryd, :vsn)}")
-  end
-
-  defp dispatch(["check"]) do
-    case Checker.run() do
+    case checker.() do
       {:error, :locked} ->
         IO.puts("another check is running, skipping")
+
+      {:error, :enospc} ->
+        recover_full_disk(options)
 
       {:error, reason} ->
         IO.puts("check unavailable: #{inspect(reason)}")
@@ -300,6 +300,12 @@ defmodule Canaryd.CLI do
 
         IO.puts(app_check_summary(apps))
     end
+  end
+
+  defp dispatch(argv, _options), do: dispatch(argv)
+
+  defp dispatch([command]) when command in ["--version", "version"] do
+    IO.puts("canaryd #{Application.spec(:canaryd, :vsn)}")
   end
 
   defp dispatch(["thermal-check"]) do
@@ -367,6 +373,37 @@ defmodule Canaryd.CLI do
       Priority: flags > environment > saved settings > defaults.
       Run start again to apply schedule changes; no configuration file is required.
     """)
+  end
+
+  defp recover_full_disk(options) do
+    disk_sampler = Keyword.get(options, :disk_sampler, &Disk.sample/0)
+    threshold_reader = Keyword.get(options, :threshold_reader, &DiskPressureConfig.read/0)
+    policy_reader = Keyword.get(options, :policy_reader, &PolicyConfig.read_all/0)
+
+    with {:ok, usage} <- disk_sampler.(),
+         {:ok, threshold} <- threshold_reader.(),
+         {:ok, policy} <- policy_reader.(),
+         true <- Disk.pressure?(usage, threshold) do
+      emergency =
+        usage.available_bytes < policy.storage_emergency_threshold * 1_024 * 1_024
+
+      cleaner =
+        if emergency,
+          do:
+            Keyword.get(options, :emergency_cleaner, fn -> BuildCleanup.run(mode: :emergency) end),
+          else: Keyword.get(options, :cleaner, &BuildCleanup.run/0)
+
+      case cleaner.() do
+        {:ok, result} ->
+          IO.puts("storage recovery: reclaimed #{Disk.format_bytes(result.reclaimed_bytes)}")
+
+        {:error, reason} ->
+          IO.puts("storage recovery failed: #{inspect(reason)}")
+      end
+    else
+      false -> IO.puts("check unavailable: :enospc")
+      {:error, reason} -> IO.puts("check unavailable: :enospc; storage: #{inspect(reason)}")
+    end
   end
 
   defp show_status(policy) do
