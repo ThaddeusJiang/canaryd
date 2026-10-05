@@ -12,37 +12,38 @@ defmodule Canaryd.Store do
   Each CLI run opens the tables, does its work, syncs and closes.
   """
 
-  alias Canaryd.{Duration, Paths}
+  alias Canaryd.{Duration, FileLock, Paths}
 
   def dir, do: Paths.support_dir()
 
-  @doc "Run `fun` with both tables open, guarded by an exclusive lockfile."
-  def with_tables(fun) do
+  @doc "Run `fun` with both tables open, guarded by a native file lock."
+  def with_tables(fun, options \\ []) do
     dir = dir()
     lockfile = Path.join(dir, "canaryd.lock")
-    File.mkdir_p!(dir)
+    lock_runner = Keyword.get(options, :lock_runner, &FileLock.with_lock/3)
 
-    case File.open(lockfile, [:write, :exclusive]) do
-      {:error, :eexist} ->
-        {:error, :locked}
-
-      {:ok, lock} ->
-        try do
-          {:ok, state} = open_table(:state, dir)
-          {:ok, events} = open_table(:events, dir)
-
-          try do
-            fun.(state, events)
-          after
-            :dets.sync(state)
-            :dets.sync(events)
-            :dets.close(state)
-            :dets.close(events)
+    with :ok <- File.mkdir_p(dir) do
+      lock_runner.(
+        lockfile,
+        fn ->
+          with {:ok, state} <- open_table(:state, dir) do
+            try do
+              with {:ok, events} <- open_table(:events, dir) do
+                try do
+                  fun.(state, events)
+                after
+                  :dets.sync(events)
+                  :dets.close(events)
+                end
+              end
+            after
+              :dets.sync(state)
+              :dets.close(state)
+            end
           end
-        after
-          File.close(lock)
-          File.rm(lockfile)
-        end
+        end,
+        create: true
+      )
     end
   end
 
@@ -51,14 +52,9 @@ defmodule Canaryd.Store do
 
     case :dets.open_file(name, file: path, type: :set, repair: true) do
       {:ok, table} -> {:ok, table}
-      {:error, {:needs_repair, _}} -> repair_and_open(name, path)
-      {:error, _} -> repair_and_open(name, path)
+      {:error, {:file_error, _path, :enospc}} -> {:error, :enospc}
+      {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp repair_and_open(name, path) do
-    File.rm(List.to_string(path))
-    :dets.open_file(name, file: path, type: :set)
   end
 
   @doc "Get latest state for a target, or a fresh default."
@@ -133,22 +129,7 @@ defmodule Canaryd.Store do
 
     if File.dir?(directory) do
       lockfile = Path.join(directory, "canaryd.lock")
-
-      case File.open(lockfile, [:write, :exclusive]) do
-        {:ok, lock} ->
-          try do
-            read_event_file(path)
-          after
-            File.close(lock)
-            File.rm(lockfile)
-          end
-
-        {:error, :eexist} ->
-          {:error, :locked}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      FileLock.with_lock(lockfile, fn -> read_event_file(path) end, create: true)
     else
       case File.stat(directory) do
         {:error, :enoent} -> {:ok, []}

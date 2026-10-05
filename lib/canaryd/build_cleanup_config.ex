@@ -6,7 +6,7 @@ defmodule Canaryd.BuildCleanupConfig do
   @max_size 64
   @max_value 87_600
 
-  def default_retention, do: Duration.hours(24)
+  def default_retention, do: Duration.hours(1)
 
   def read(home \\ Paths.home_dir()) do
     case ConfigFile.get("build-retention", home) do

@@ -12,9 +12,9 @@ defmodule Canaryd.BuildCleanupConfigTest do
     %{home: home, path: path}
   end
 
-  test "a missing setting uses 24 hours without writing a file", context do
-    assert BuildCleanupConfig.default_retention() == Duration.hours(24)
-    assert BuildCleanupConfig.read(context.home) == {:ok, Duration.hours(24)}
+  test "a missing setting uses one hour without writing a file", context do
+    assert BuildCleanupConfig.default_retention() == Duration.hours(1)
+    assert BuildCleanupConfig.read(context.home) == {:ok, Duration.hours(1)}
     refute File.exists?(context.path)
   end
 

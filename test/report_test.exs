@@ -14,20 +14,29 @@ defmodule Canaryd.ReportTest do
         failures: 1,
         sccache: %{reclaimed_bytes: 40}
       },
+      %{
+        at: ~U[2026-09-23 02:00:00Z],
+        target: :storage,
+        type: :emergency_cleanup_completed,
+        reclaimed_bytes: 300,
+        removed: 1,
+        failures: 0
+      },
       %{at: ~U[2026-09-22 01:00:00Z], target: :apps, type: :restarted},
       %{at: ~U[2026-09-22 02:00:00Z], target: :apps, type: :restart_failed},
       %{at: ~U[2026-09-22 03:00:00Z], target: :apps, type: :hang_detected}
     ]
 
     report = Report.build(events)
-    assert report.summary.event_count == 4
-    assert report.summary.recorded_reclaimed_bytes == 100
+    assert report.summary.event_count == 5
+    assert report.summary.cleanup_runs == 2
+    assert report.summary.recorded_reclaimed_bytes == 400
     assert report.summary.cleanup_failures == 1
     assert report.summary.successful_action_events == 1
     assert report.summary.failed_action_events == 1
     assert report.summary.events_by_target_and_type.apps.hang_detected == 1
-    assert length(report.events) == 4
-    assert Report.build(events, ~U[2026-09-23 00:00:00Z]).summary.event_count == 1
+    assert length(report.events) == 5
+    assert Report.build(events, ~U[2026-09-23 00:00:00Z]).summary.event_count == 2
   end
 
   test "exports every event as JSON with UTC timestamps and arbitrary details" do

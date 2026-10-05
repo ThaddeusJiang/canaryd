@@ -1,6 +1,6 @@
 # 009 Stale Build Cleanup
 
-Daily cleanup specification for stale Xcode/Rust artifacts, orphaned Bazel
+Pressure-triggered and manual cleanup specification for stale Xcode/Rust artifacts, orphaned Bazel
 output bases, shared Bazel repository caches, and stale sccache objects.
 
 ## Purpose
@@ -19,10 +19,12 @@ archives, developer credentials, Simulator data, or active build artifacts.
     local workspace no longer exists.
   - Recognized download entries and extracted repositories under
     `~/Library/Caches/bazel/_bazel_*/cache/repos/v1`.
-  - A daily launchd calendar schedule at 04:00 local time.
+  - Cleanup below the configured free-space threshold during health checks.
   - A manual `canaryd clean` command.
-  - A per-user retention setting, defaulting to 24 hours, shared by scheduled
-    and manual cleanup.
+  - Redundant forgotten JJ workspaces and orphaned Git worktrees under the
+    strict checks in [spec 012](./012-forgotten-workspace-cleanup.md).
+  - A per-user retention setting, defaulting to one hour, shared by manual and
+    pressure-triggered cleanup.
   - Local event history with counts, reclaimed bytes, and bounded skip reasons.
 - Out of scope:
   - Xcode Archives, DeviceSupport, SDKs, UserData, signing identities, and
@@ -79,7 +81,7 @@ archives, developer credentials, Simulator data, or active build artifacts.
 
 ## Retention and Safety
 
-The default retention is 24 hours. `canaryd config build-retention` shows the
+The default retention is one hour. `canaryd config build-retention` shows the
 effective value; `canaryd config build-retention 48h` saves a new duration.
 Values are positive whole hours from `1h` to `87600h` (ten years), stored in
 `~/Library/Application Support/canaryd/config.conf` as `build-retention=48h`.
@@ -89,7 +91,7 @@ setting uses the default; malformed, oversized or unreadable
 configuration stops cleanup before process inspection or candidate deletion.
 Read the setting once per round under the cleanup lock and freeze that round's
 cutoff. A setting changed during cleanup applies to the next round, without
-changing the 04:00 schedule or requiring a restart. Configuration commands do
+requiring a restart. Configuration commands do
 not start monitoring, install notification helpers or run cleanup.
 
 1. Retain an Xcode/Cargo candidate when the directory or any descendant was modified
@@ -98,16 +100,16 @@ not start monitoring, install notification helpers or run cleanup.
    the configured retention period; the exact cutoff is eligible.
 3. Skip all Xcode candidates while a current-user `Xcode`, `Simulator`,
    `xcodebuild`, or `xctest` process is active.
-4. Skip all Rust candidates while a current-user `cargo` or `rustc` process is
-   active. Independently retain a target containing any running executable,
-   even when no compiler is active. Resolve executable aliases, preserve
+4. Inspect the working directory of current-user build processes and retain a
+   Cargo target used by an active build. Independently retain a target
+   containing any running executable. Resolve executable aliases, preserve
    path-component boundaries, and treat uncertain activity as protection.
    A protected target does not block unrelated idle targets.
 5. If process inspection is unavailable, delete nothing.
 6. Recheck the relevant process class immediately before each deletion.
 7. Never follow a symbolic link while discovering, measuring, or deleting a
    candidate.
-8. Use a dedicated native exclusive lock so manual and scheduled cleanup
+8. Use a dedicated native exclusive lock so manual and pressure-triggered cleanup
    cannot run concurrently. The lock file may remain on disk; only a live
    holder blocks cleanup. Process termination releases the lock automatically,
    and abandoned lock files from older versions do not block future runs.
@@ -163,8 +165,8 @@ not start monitoring, install notification helpers or run cleanup.
 
 ## Behavior
 
-1. At 04:00 local time, launchd runs `canaryd clean`.
-2. Installing the calendar agent does not immediately run cleanup.
+1. The launchd health check starts cleanup when Data-volume free space is below the configured threshold.
+2. Installing the health-check agent does not immediately run a separate cleanup command.
 3. Canaryd discovers validated candidates within the fixed safe roots.
 4. Canaryd checks current-user build processes and the full candidate tree
    activity before deletion.
@@ -172,8 +174,8 @@ not start monitoring, install notification helpers or run cleanup.
 6. Canaryd removes validated stale Xcode/Cargo candidates, idle Bazel output
    bases with a missing local workspace, and eligible stale shared repository
    entries under their separate activity and lock checks.
-7. Canaryd prints removed paths, reclaimed bytes, skips, and failures to its
-   local launchd log.
+7. Canaryd records removed paths, reclaimed bytes, skips, and failures in the
+   check result or manual command output.
 8. Canaryd records one `builds` history event containing counts, estimated reclaimed
    bytes, and bounded reasons including `bazel_skip`. Paths are not persisted in DETS.
 
@@ -183,7 +185,7 @@ not start monitoring, install notification helpers or run cleanup.
 
 Given:
 - A DerivedData child and a validated Cargo target have no modification in the
-  last 24 hours, with no custom retention configured.
+  last hour, with no custom retention configured.
 - No protected build process is active.
 
 When:
@@ -216,11 +218,11 @@ When:
 - The cleanup command runs.
 
 Then:
-- Canaryd skips the affected build class, or all cleanup when inspection is
-  unavailable.
+- Canaryd skips the affected target or Xcode build class, or all cleanup when
+  inspection is unavailable.
 - Canaryd records the bounded skip reason.
 
-### BDD-04 Run once daily at 04:00
+### BDD-04 Remove the former daily task
 
 Given:
 - The user runs `canaryd start` to install or refresh its launchd configuration.
@@ -229,10 +231,9 @@ When:
 - The launchd agents are rendered.
 
 Then:
-- The full health check retains its five-minute interval.
-- A separate build-cleanup agent uses `StartCalendarInterval` with hour 4 and
-  minute 0.
-- The build-cleanup agent does not use `RunAtLoad`.
+- The full health check retains its configured interval.
+- No separate daily build-cleanup agent is installed.
+- An already installed daily build-cleanup agent is unloaded and its plist is removed.
 
 ### BDD-05 Remove orphaned Bazel caches
 
@@ -278,7 +279,7 @@ Given:
 - No protected Rust process is active.
 
 When:
-- The daily `canaryd clean` run discovers its default roots.
+- A manual cleanup discovers its default roots.
 
 Then:
 - Only the stale target is removed; the backup and other files remain.
@@ -289,7 +290,7 @@ Then:
 
 Acceptance: `Canaryd.BuildCleanupTest` backup discovery, retention, process,
 ancestry, read-only directory, and hard-link scenarios; `Canaryd.RuntimePathsTest`
-CLI cleanup and bounded history integration; `Canaryd.SetupTest` daily schedule.
+CLI cleanup and bounded history integration; `Canaryd.SetupTest` check schedule.
 
 ### BDD-09 Clean temporary Cargo targets without removing running services
 
@@ -319,12 +320,12 @@ Acceptance: `Canaryd.BuildCleanupTest`, `Canaryd.ArtifactProcessesTest`,
 `Canaryd.ArtifactTreeTest`, `Canaryd.BazelRepositoryCacheTest`, and the real
 CLI/history integration in `Canaryd.RuntimePathsTest`.
 
-### BDD-11 Configure retention with a 24-hour default
+### BDD-11 Configure retention with a one-hour default
 
 With no saved setting, Xcode, temporary Cargo and shared Bazel trees at exactly
-24 hours are eligible; a descendant one second newer keeps its whole candidate.
+one hour are eligible; a descendant one second newer keeps its whole candidate.
 After saving `48h`, the same 36-hour-old candidates remain across invocations.
-A change to `24h` during a round takes effect only on the next round. Reading
+A change to `1h` during a round takes effect only on the next round. Reading
 and changing settings preserves the existing monitoring lifecycle.
 
 Invalid command values preserve the saved setting. Invalid persisted values

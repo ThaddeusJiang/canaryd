@@ -24,12 +24,12 @@ defmodule Canaryd.SetupLifecycleTest do
     %{state: state, options: [runner: runner, ensure_notification_helper: fn -> :ok end]}
   end
 
-  test "custom schedule is persisted and repeated installation stays idempotent", %{
+  test "check schedule is persisted and repeated installation stays idempotent", %{
     options: options,
     state: state
   } do
     {:ok, config} =
-      Canaryd.Config.resolve([check_interval: "2m", cleanup_at: "03:45", build_retention: "48h"],
+      Canaryd.Config.resolve([check_interval: "2m", build_retention: "48h"],
         env: %{}
       )
 
@@ -39,12 +39,9 @@ defmodule Canaryd.SetupLifecycleTest do
     paths =
       for label <- Setup.labels(), do: Path.join(Paths.launch_agents_dir(), label <> ".plist")
 
-    [check, clean] = Enum.map(paths, &File.read!/1)
+    [check] = Enum.map(paths, &File.read!/1)
     assert check =~ "<key>StartCalendarInterval</key>"
     assert length(Regex.scan(~r/<key>Minute<\/key>/, check)) == 30
-    assert clean =~ "<integer>3</integer>"
-    assert clean =~ "<integer>45</integer>"
-    assert clean =~ "<string>48h</string>"
     for path <- paths, do: assert({_output, 0} = System.cmd("plutil", ["-lint", path]))
     before = Agent.get(state, & &1.calls)
     assert :ok = Setup.install(options)
@@ -71,14 +68,14 @@ defmodule Canaryd.SetupLifecycleTest do
   test "reloads only the agent whose configuration changed", %{options: options, state: state} do
     assert :ok = Setup.install(options)
     take_calls(state)
-    [label, _] = Setup.labels()
+    [label] = Setup.labels()
     File.write!(plist_path(label), "outdated configuration")
     before = plist_metadata()
 
     assert :ok = Setup.install(options)
     assert take_calls(state) == [{"bootout", label}, {"bootstrap", label}]
     assert File.read!(plist_path(label)) =~ "<key>StartCalendarInterval</key>"
-    assert List.last(plist_metadata(touch?: false)) == List.last(before)
+    refute plist_metadata(touch?: false) == before
   end
 
   test "loads a missing job without rewriting its unchanged plist", %{
@@ -87,7 +84,7 @@ defmodule Canaryd.SetupLifecycleTest do
   } do
     assert :ok = Setup.install(options)
     take_calls(state)
-    [_, label] = Setup.labels()
+    [label] = Setup.labels()
     Agent.update(state, &%{&1 | loaded: MapSet.delete(&1.loaded, label)})
     before = plist_metadata()
 
@@ -102,7 +99,7 @@ defmodule Canaryd.SetupLifecycleTest do
   } do
     assert :ok = Setup.install(options)
     take_calls(state)
-    [label, _] = Setup.labels()
+    [label] = Setup.labels()
     File.write!(plist_path(label), "old configuration")
     Agent.update(state, &%{&1 | failures: %{{"bootout", label} => {"unload failed", 1}}})
 
@@ -115,11 +112,11 @@ defmodule Canaryd.SetupLifecycleTest do
     assert take_calls(state) == [{"bootout", label}, {"bootstrap", label}]
   end
 
-  test "retries a failed bootstrap without reloading the successful sibling", %{
+  test "retries a failed bootstrap", %{
     options: options,
     state: state
   } do
-    [_, label] = Setup.labels()
+    [label] = Setup.labels()
     Agent.update(state, &%{&1 | failures: %{{"bootstrap", label} => {"load failed", 1}}})
     assert {:error, "load failed"} = Setup.install(options)
     take_calls(state)
@@ -131,21 +128,46 @@ defmodule Canaryd.SetupLifecycleTest do
     assert plist_metadata(touch?: false) == before
   end
 
-  test "removes the obsolete thermal agent while preserving current jobs", %{
+  test "removes obsolete thermal and daily cleanup agents while preserving current job", %{
     options: options,
     state: state
   } do
     assert :ok = Setup.install(options)
     take_calls(state)
-    [label] = Setup.obsolete_agent_labels()
-    File.write!(plist_path(label), "obsolete configuration")
-    Agent.update(state, &%{&1 | loaded: MapSet.put(&1.loaded, label)})
+    labels = Setup.obsolete_agent_labels()
+
+    for label <- labels do
+      File.write!(plist_path(label), "obsolete configuration")
+      Agent.update(state, &%{&1 | loaded: MapSet.put(&1.loaded, label)})
+    end
+
     before = plist_metadata()
 
     assert :ok = Setup.install(options)
-    assert take_calls(state) == [{"bootout", label}]
-    refute File.exists?(plist_path(label))
+    assert take_calls(state) == Enum.map(labels, &{"bootout", &1})
+    for label <- labels, do: refute(File.exists?(plist_path(label)))
     assert plist_metadata(touch?: false) == before
+  end
+
+  test "failed daily cleanup unload preserves its plist and stops installation", %{
+    options: options,
+    state: state
+  } do
+    label = "com.thaddeusjiang.canaryd.build-cleanup"
+    File.mkdir_p!(Paths.launch_agents_dir())
+    File.write!(plist_path(label), "old schedule")
+
+    Agent.update(state, fn s ->
+      %{
+        s
+        | loaded: MapSet.put(s.loaded, label),
+          failures: %{{"bootout", label} => {"unload failed", 1}}
+      }
+    end)
+
+    assert {:error, "unload failed"} = Setup.install(options)
+    assert File.read!(plist_path(label)) == "old schedule"
+    refute File.exists?(plist_path(Setup.label()))
   end
 
   defp launchctl(["list", label], state) do

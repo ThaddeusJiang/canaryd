@@ -11,6 +11,24 @@ defmodule Canaryd.BazelRepositoryCache do
   @algorithms [{"sha1", 40}, {"sha256", 64}, {"sha384", 96}, {"sha512", 128}, {"blake3", 64}]
   @uuid ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
 
+  @doc false
+  def candidates?(home) do
+    root = Path.join(home, "Library/Caches/bazel")
+
+    with {:ok, boundary} <- directory_identity(home),
+         {:ok, _} <- ancestors(root, home, boundary),
+         {:ok, entries} <- File.ls(root) do
+      context = %{home: home, boundary: boundary, order_candidates: &Function.identity/1}
+
+      Enum.any?(entries, fn entry ->
+        String.starts_with?(entry, "_bazel_") and
+          repository_candidates(Path.join([root, entry, "cache/repos/v1"]), context) != []
+      end)
+    else
+      _ -> false
+    end
+  end
+
   # Bazel 9.2.0 DownloadCache / LocalRepoContentsCache formats. Hits refresh
   # file or .recorded_inputs mtimes, not the containing cache root. Each round
   # makes bounded progress while holding every output-base lock for its batch.

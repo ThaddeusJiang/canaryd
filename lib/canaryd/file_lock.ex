@@ -36,6 +36,7 @@ defmodule Canaryd.FileLock do
         release_lock(port)
       end
     else
+      {:error, :enospc} -> {:error, :enospc}
       _ -> {:error, :lock_unavailable}
     end
   end
@@ -85,6 +86,7 @@ defmodule Canaryd.FileLock do
     case File.open(path, [:write, :exclusive]) do
       {:ok, file} -> File.close(file)
       {:error, :eexist} -> :ok
+      {:error, :enospc} -> {:error, :enospc}
       {:error, _reason} -> {:error, :lock_unavailable}
     end
   end

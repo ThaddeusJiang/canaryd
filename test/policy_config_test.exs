@@ -18,12 +18,12 @@ defmodule Canaryd.PolicyConfigTest do
     assert policy.memory_rss == 1_024
     assert policy.swap_min_growth == 512
     assert policy.check_interval == 5
-    assert policy.cleanup_time == {4, 0}
+    assert policy.storage_emergency_threshold == 1_024
     assert length(PolicyConfig.keys()) == length(Enum.uniq(PolicyConfig.names()))
     assert Enum.all?(PolicyConfig.keys(), &(&1 == PolicyConfig.key(PolicyConfig.name(&1))))
   end
 
-  test "persists numeric, duration and clock settings without starting monitoring", %{home: home} do
+  test "persists numeric and duration settings without starting monitoring", %{home: home} do
     options = [home: home, start: fn -> flunk("config must not start monitoring") end]
 
     assert capture_io(fn -> CLI.main(["config", "swap-min-growth", "768M"], options) end) ==
@@ -35,24 +35,19 @@ defmodule Canaryd.PolicyConfigTest do
     assert capture_io(fn -> CLI.main(["config", "thermal-alert-cooldown", "20m"], options) end) ==
              "thermal-alert-cooldown=20m\n"
 
-    assert capture_io(fn -> CLI.main(["config", "cleanup-time", "05:30"], options) end) ==
-             "cleanup-time=05:30\n"
-
     assert {:ok, policy} = PolicyConfig.read_all(home)
     assert policy.swap_min_growth == 768
     assert policy.system_chip_temperature == 75.0
     assert policy.thermal_alert_cooldown == Duration.minutes(20)
-    assert policy.cleanup_time == {5, 30}
 
     assert {:ok, config} = Canaryd.Config.resolve([], home: home, env: %{})
 
-    assert [%{calendar: _}, %{calendar: %{hour: 5, minute: 30}}] =
-             Setup.agent_specs("/tmp/canaryd", config)
+    assert [%{calendar: _}] = Setup.agent_specs("/tmp/canaryd", config)
 
     assert capture_io(fn -> CLI.main(["config", "swap-min-growth"], options) end) ==
              "swap-min-growth=768M\n"
 
-    assert capture_io(fn -> CLI.main(["config"], options) end) =~ "cleanup-time=05:30"
+    refute capture_io(fn -> CLI.main(["config"], options) end) =~ "cleanup-time"
   end
 
   test "rejects invalid values without overwriting the last valid setting", %{home: home} do
@@ -63,11 +58,26 @@ defmodule Canaryd.PolicyConfigTest do
       assert PolicyConfig.read(:swap_min_growth, home) == {:ok, 768}
     end
 
-    assert {:error, :invalid_value} = PolicyConfig.set("cleanup-time", "24:00", home)
+    assert {:error, :unknown_key} = PolicyConfig.set("cleanup-time", "05:30", home)
     assert {:error, :invalid_value} = PolicyConfig.set("playwright-confirmations", "1", home)
     assert {:error, :invalid_value} = PolicyConfig.set("storage-cleanup-cooldown", "1m", home)
     assert {:error, :invalid_value} = PolicyConfig.set("memory-rss", nil, home)
     assert {:error, :unknown_key} = PolicyConfig.set("made-up", "1", home)
+  end
+
+  test "emergency free-space threshold is configurable", %{home: home} do
+    assert {:ok, 768} = PolicyConfig.set("storage-emergency-threshold", "768M", home)
+    assert PolicyConfig.read(:storage_emergency_threshold, home) == {:ok, 768}
+    assert {:error, :invalid_value} = PolicyConfig.set("storage-emergency-threshold", "0M", home)
+    assert PolicyConfig.read(:storage_emergency_threshold, home) == {:ok, 768}
+  end
+
+  test "retired cleanup-time entry does not block an upgraded installation", %{home: home} do
+    path = Canaryd.ConfigFile.path(home)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "cleanup-time=04:00\n")
+    assert {:ok, _policy} = PolicyConfig.read_all(home)
+    refute "cleanup-time" in PolicyConfig.names()
   end
 
   test "corrupt, oversized and symlinked settings fail closed", %{home: home} do

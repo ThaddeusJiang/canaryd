@@ -130,6 +130,43 @@ defmodule Canaryd.CLITest do
     end
   end
 
+  test "reclaims disk space when the check cannot open its store" do
+    output =
+      capture_io(fn ->
+        CLI.main(["check"],
+          ensure_notification_helper: fn -> :ok end,
+          checker: fn -> {:error, :enospc} end,
+          disk_sampler: fn -> {:ok, %{available_bytes: 900 * 1_024 * 1_024}} end,
+          threshold_reader: fn -> {:ok, 10 * 1_024 * 1_024 * 1_024} end,
+          policy_reader: fn -> {:ok, %{storage_emergency_threshold: 1_024}} end,
+          emergency_cleaner: fn ->
+            send(self(), :emergency_cleanup_called)
+            {:ok, %{reclaimed_bytes: 2 * 1_024 * 1_024 * 1_024}}
+          end
+        )
+      end)
+
+    assert_received :emergency_cleanup_called
+    assert output =~ "reclaimed 2.0 GB"
+  end
+
+  test "uses ordinary cleanup when the store is full above the emergency threshold" do
+    output =
+      capture_io(fn ->
+        CLI.main(["check"],
+          ensure_notification_helper: fn -> :ok end,
+          checker: fn -> {:error, :enospc} end,
+          disk_sampler: fn -> {:ok, %{available_bytes: 5 * 1_024 * 1_024 * 1_024}} end,
+          threshold_reader: fn -> {:ok, 10 * 1_024 * 1_024 * 1_024} end,
+          policy_reader: fn -> {:ok, %{storage_emergency_threshold: 1_024}} end,
+          emergency_cleaner: fn -> flunk("builds must keep running above 1 GiB") end,
+          cleaner: fn -> {:ok, %{reclaimed_bytes: 1_024 * 1_024 * 1_024}} end
+        )
+      end)
+
+    assert output =~ "reclaimed 1.0 GB"
+  end
+
   test "reclaim previews protected and quiet helpers without enabling background tasks" do
     reclaimer = fn options ->
       assert options == [dry_run: true]
