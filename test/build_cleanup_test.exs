@@ -17,8 +17,8 @@ defmodule Canaryd.BuildCleanupTest do
     %{root: root}
   end
 
-  test "defaults to a 24-hour retention" do
-    assert BuildCleanup.retention() == Duration.hours(24)
+  test "defaults to a one-hour retention" do
+    assert BuildCleanup.retention() == Duration.hours(1)
   end
 
   test "reclaims stale Rust targets before inspecting workspaces", %{root: root} do
@@ -159,10 +159,10 @@ defmodule Canaryd.BuildCleanupTest do
     now = ~U[2030-01-01 00:00:00Z]
     stale = retention_candidates(root, "old")
     recent = retention_candidates(root, "recent")
-    for path <- stale, do: age_tree(path, Duration.add(now, -Duration.hours(24)))
+    for path <- stale, do: age_tree(path, Duration.add(now, -Duration.hours(1)))
 
     for path <- recent,
-        do: age_tree(path, Duration.add(now, -Duration.hours(24) + Duration.seconds(1)))
+        do: age_tree(path, Duration.add(now, -Duration.hours(1) + Duration.seconds(1)))
 
     result = run(root, now: now, rust_roots: [])
     assert Enum.sort(Enum.map(result.removed, & &1.path)) == Enum.sort(stale)
@@ -183,7 +183,7 @@ defmodule Canaryd.BuildCleanupTest do
         now: now,
         rust_roots: [],
         process_scanner: fn ->
-          File.write!(config, "24h\n")
+          File.write!(config, "1h\n")
           {:ok, MapSet.new()}
         end
       )
@@ -218,7 +218,7 @@ defmodule Canaryd.BuildCleanupTest do
     temporary = Path.join(root, ".rust-tmp")
     stale = cargo_target(Path.join(temporary, "nmem-build"))
     recent = cargo_target(Path.join(temporary, "recent-build"))
-    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 30, 0}})
     nested = cargo_target(Path.join([temporary, "project", "target"]))
     source = Path.join([temporary, "project", "Cargo.toml"])
     File.write!(source, "[package]")
@@ -396,14 +396,14 @@ defmodule Canaryd.BuildCleanupTest do
     assert File.dir?(target)
   end
 
-  test "daily discovery removes stale backup targets but preserves the backup and recent outputs",
+  test "backup discovery removes stale targets but preserves the backup and recent outputs",
        %{root: root} do
     backup =
       Path.join([root, ".codex", "workspace-backups", "mem-cleanup", "local-files", "task"])
 
     stale = cargo_target(Path.join([backup, "nmem-rs", "target"]))
     recent = cargo_target(Path.join([backup, "another-project", "target"]))
-    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 30, 0}})
     protected = Path.join(backup, "unmerged.diff")
     File.write!(protected, "unmerged source changes")
     File.write!(Path.join(backup, "preserved-files.tar.gz"), "backup archive")
@@ -456,17 +456,21 @@ defmodule Canaryd.BuildCleanupTest do
     refute File.exists?(candidate)
   end
 
-  test "pressure cleanup removes a recent idle Rust target without stopping another build", %{
+  test "pressure cleanup retains Rust output used within one hour and active builds", %{
     root: root
   } do
     projects = Path.join(root, "Projects")
     idle = cargo_target(Path.join([projects, "idle", "target"]))
+    recent = cargo_target(Path.join([projects, "recent", "target"]))
     active = cargo_target(Path.join([projects, "active", "target"]))
     now = ~U[2030-01-01 00:00:00Z]
-    for path <- [idle, active], do: age_tree(path, Duration.add(now, -Duration.hours(1)))
+    age_tree(idle, Duration.add(now, -Duration.hours(1)))
+    age_tree(active, Duration.add(now, -Duration.hours(2)))
+    age_tree(recent, Duration.add(now, -Duration.minutes(30)))
 
     options = [
       now: now,
+      build_retention: "1h",
       rust_roots: [projects],
       process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
       build_stopper: fn -> flunk("pressure cleanup must not stop compilers") end,
@@ -476,14 +480,11 @@ defmodule Canaryd.BuildCleanupTest do
       end
     ]
 
-    assert run(root, options).removed == []
-    assert File.dir?(idle)
-
     result = run(root, Keyword.put(options, :mode, :pressure))
     assert Enum.map(result.removed, & &1.path) == [idle]
     assert result.terminated_build_processes == 0
-    assert result.skipped.rust == :active_target
     refute File.exists?(idle)
+    assert File.dir?(recent)
     assert File.dir?(active)
   end
 
@@ -509,7 +510,10 @@ defmodule Canaryd.BuildCleanupTest do
     scanner = fn ->
       scans = Process.get(:backup_recent_scans, 0)
       Process.put(:backup_recent_scans, scans + 1)
-      if scans == 1, do: File.touch!(Path.join(target, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+
+      if scans == 1,
+        do: File.touch!(Path.join(target, "debug/app"), {{2029, 12, 31}, {23, 30, 0}})
+
       {:ok, MapSet.new()}
     end
 
@@ -631,7 +635,7 @@ defmodule Canaryd.BuildCleanupTest do
 
     File.touch!(
       Path.join(xcode_candidate, "artifact.o"),
-      {{2029, 12, 31}, {23, 0, 0}}
+      {{2029, 12, 31}, {23, 30, 0}}
     )
 
     result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_roots: [])

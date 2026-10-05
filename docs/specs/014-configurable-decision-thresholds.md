@@ -49,7 +49,7 @@ spacing relationships above must also hold.
 | Key | Default and range |
 | --- | --- |
 | `storage-threshold` | default 20G, range 1G..1024G |
-| `build-retention` | default 24h, range 1h..87600h |
+| `build-retention` | default 1h, range 1h..87600h |
 +| `build-process-alert-cooldown` | default 60m, range 1m..1440m |
 | `build-process-confirmations` | default 3, range 1..20 |
 | `build-process-max-gap` | default 10m, range 1m..120m |

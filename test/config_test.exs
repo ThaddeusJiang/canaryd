@@ -11,7 +11,7 @@ defmodule Canaryd.ConfigTest do
   test "works without any config file", %{options: options} do
     assert {:ok, config} = Config.resolve([], options)
     assert config.check_interval == Duration.minutes(5)
-    assert config.build_retention == Duration.hours(24)
+    assert config.build_retention == Duration.hours(1)
     refute config.retention_override
   end
 

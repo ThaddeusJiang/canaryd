@@ -9,9 +9,9 @@ detached compiler work visible, with an explicit emergency cleanup policy.
 - Enter guarded cleanup below the configured free-space threshold (default 10 GiB).
 - Allow users to view and change the threshold in whole GiB without restarting
   monitoring; invalid or unreadable settings stop pressure-triggered cleanup.
-- Reuse the existing fail-closed build cleanup categories. Under ordinary disk
-  pressure, validated idle Cargo targets may be removed regardless of age;
-  other categories retain their configured retention rules.
+- Reuse the existing fail-closed build cleanup categories. Ordinary cleanup
+  removes a validated idle Cargo target only after its entire tree reaches the
+  configured retention period, one hour by default.
 - The ordinary free-space threshold defaults to 10 GiB. Ordinary cleanup does
   not stop compilers; it may reclaim an idle target despite a build in a
   different project and may remove redundant forgotten workspaces under spec 012.
@@ -53,8 +53,9 @@ and the existing cleanup lock is available,
 When a full health check runs,
 
 Then canaryd runs the existing guarded build cleanup, records reclaimed bytes
-and skip reasons, removes a recent idle Cargo target when safe, and never
-broadens cleanup to arbitrary caches or source.
+and skip reasons, removes a Cargo target whose tree was unmodified for the
+configured hour and has no active user, and never broadens cleanup to arbitrary
+caches or source.
 
 ### BDD-02 Avoid repeated cleanup
 

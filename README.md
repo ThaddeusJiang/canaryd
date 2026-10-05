@@ -217,7 +217,7 @@ consume disk space.
 
 When free space falls below the configured threshold (10 GiB by default),
 Canaryd checks fixed safe roots and requires Xcode/Cargo directory trees to be
-untouched for 24 hours by default. Ordinary cleanup does not stop compilers.
+untouched for one hour by default. Ordinary cleanup does not stop compilers.
 It skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active.
 A running Cargo/Rust build protects its own target; an unrelated build does not
 block an idle target. A service running from a target also protects it. Canaryd
@@ -268,7 +268,7 @@ order varies across runs so one protected prefix does not monopolize cleanup.
 An in-progress tree operation can finish after the budget; locks are released
 before a later round retries the remainder.
 The same run cleans completed sccache objects in
-`~/Library/Caches/Mozilla.sccache` after the configured retention (24h by default).
+`~/Library/Caches/Mozilla.sccache` after the configured retention (1h by default).
 Recent or open objects, preprocessor data, temporary writes and custom cache
 locations remain. Active compiler processes or unavailable inspection skip
 sccache cleanup. Each round removes up to 10,000 objects within a 30-second soft
@@ -281,9 +281,9 @@ Run `canaryd clean` to apply these checks manually.
 View or change the retention with:
 
 ```sh
-canaryd config build-retention       # show the effective retention (default: 24h)
+canaryd config build-retention       # show the effective retention (default: 1h)
 canaryd config build-retention 48h   # save a 48-hour retention
-canaryd config build-retention 24h   # use the default duration again
+canaryd config build-retention 1h    # use the default duration again
 ```
 
 The setting accepts whole hours from `1h` to `87600h` and is saved per user in
@@ -325,7 +325,7 @@ line; blank lines and lines beginning with `#` are allowed:
 # Free space on the Data volume before guarded cleanup
 storage-threshold=10G
 swap-min-growth=768M
-build-retention=24h
+build-retention=1h
 check-interval=5m
 storage-emergency-threshold=1024M
 ```
@@ -504,7 +504,7 @@ export PATH="$HOME/.local/bin:$HOME/.mix/escripts:$PATH"
 | `canaryd check` | Run one full health check now |
 | `canaryd thermal-check` | Run one thermal and high-CPU process check now |
 | `canaryd clean` | Clean eligible build caches and redundant, unregistered workspaces now |
-| `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 24h |
+| `canaryd config build-retention [48h]` | Show or save the build cleanup retention; defaults to 1h |
 | `canaryd config storage-threshold [30G]` | Show or save the Data-volume cleanup threshold; defaults to 10 GiB |
 | `canaryd config [key [value]]` | List, show, or save the other monitoring, notification, automatic-action, and schedule thresholds |
 | `canaryd reclaim [--dry-run]` | Inspect quiet Codex helpers; dry run preserves observations; no Codex termination |
@@ -542,7 +542,7 @@ Canaryd confirms abnormal behavior before changing another process.
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
 | Quiet Codex tool hosts | 30-minute CPU/identity observation window without children | Report and retain; existing sessions cannot safely reconnect |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
-| Stale build output | Complete tree inactive for the configured retention (default 24h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
+| Stale build output | Complete tree inactive for the configured retention (default 1h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible probe every 30 minutes when healthy; retry failures next check | Restart quietly; notify only when recovery is blocked |
 | Other system health failures | Three consecutive full checks | Send one system-degraded notification; pressure warnings share the notification above |
@@ -586,7 +586,7 @@ The shared safety rules are:
   never stores the command line used for classification.
 - Ordinary Xcode/Cargo cleanup does not stop related tools and removes only
   validated, reproducible directories whose complete trees have reached the
-  configured retention (default 24h), including Cargo targets in Codex workspace
+  configured retention (default 1h), including Cargo targets in Codex workspace
   backups and directly under `/private/tmp`. Targets containing running
   executables are retained.
 - Bazel output-base cleanup requires a missing local workspace, no active server, and an
@@ -733,7 +733,7 @@ variables to override these defaults:
 | Setting | Flag | Environment variable | Default |
 | --- | --- | --- | --- |
 | Monitoring interval | `--check-interval` | `CANARYD_CHECK_INTERVAL` | `5m` |
-| Stale build/cache retention | `--build-retention` | `CANARYD_BUILD_RETENTION` | `24h` |
+| Stale build/cache retention | `--build-retention` | `CANARYD_BUILD_RETENTION` | `1h` |
 
 ```sh
 canaryd start --check-interval 2m --build-retention 48h

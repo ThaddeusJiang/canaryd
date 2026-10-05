@@ -23,8 +23,8 @@ archives, developer credentials, Simulator data, or active build artifacts.
   - A manual `canaryd clean` command.
   - Redundant forgotten JJ workspaces and orphaned Git worktrees under the
     strict checks in [spec 012](./012-forgotten-workspace-cleanup.md).
-  - A per-user retention setting, defaulting to 24 hours, for manual cleanup
-    and automatic categories other than idle Cargo targets under disk pressure.
+  - A per-user retention setting, defaulting to one hour, shared by manual and
+    pressure-triggered cleanup.
   - Local event history with counts, reclaimed bytes, and bounded skip reasons.
 - Out of scope:
   - Xcode Archives, DeviceSupport, SDKs, UserData, signing identities, and
@@ -81,7 +81,7 @@ archives, developer credentials, Simulator data, or active build artifacts.
 
 ## Retention and Safety
 
-The default retention is 24 hours. `canaryd config build-retention` shows the
+The default retention is one hour. `canaryd config build-retention` shows the
 effective value; `canaryd config build-retention 48h` saves a new duration.
 Values are positive whole hours from `1h` to `87600h` (ten years), stored in
 `~/Library/Application Support/canaryd/config.conf` as `build-retention=48h`.
@@ -95,11 +95,9 @@ requiring a restart. Configuration commands do
 not start monitoring, install notification helpers or run cleanup.
 
 1. Retain an Xcode/Cargo candidate when the directory or any descendant was modified
-   within the configured retention period, except an idle Cargo target during
-   pressure-triggered cleanup.
+   within the configured retention period.
 2. Delete an Xcode/Cargo candidate only when every entry in its tree has reached
-   the configured retention period; the exact cutoff is eligible. Under disk
-   pressure, a validated idle Cargo target may be removed at any age.
+   the configured retention period; the exact cutoff is eligible.
 3. Skip all Xcode candidates while a current-user `Xcode`, `Simulator`,
    `xcodebuild`, or `xctest` process is active.
 4. Inspect the working directory of current-user build processes and retain a
@@ -187,7 +185,7 @@ not start monitoring, install notification helpers or run cleanup.
 
 Given:
 - A DerivedData child and a validated Cargo target have no modification in the
-  last 24 hours, with no custom retention configured.
+  last hour, with no custom retention configured.
 - No protected build process is active.
 
 When:
@@ -322,12 +320,12 @@ Acceptance: `Canaryd.BuildCleanupTest`, `Canaryd.ArtifactProcessesTest`,
 `Canaryd.ArtifactTreeTest`, `Canaryd.BazelRepositoryCacheTest`, and the real
 CLI/history integration in `Canaryd.RuntimePathsTest`.
 
-### BDD-11 Configure retention with a 24-hour default
+### BDD-11 Configure retention with a one-hour default
 
 With no saved setting, Xcode, temporary Cargo and shared Bazel trees at exactly
-24 hours are eligible; a descendant one second newer keeps its whole candidate.
+one hour are eligible; a descendant one second newer keeps its whole candidate.
 After saving `48h`, the same 36-hour-old candidates remain across invocations.
-A change to `24h` during a round takes effect only on the next round. Reading
+A change to `1h` during a round takes effect only on the next round. Reading
 and changing settings preserves the existing monitoring lifecycle.
 
 Invalid command values preserve the saved setting. Invalid persisted values

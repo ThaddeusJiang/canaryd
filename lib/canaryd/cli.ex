@@ -354,7 +354,7 @@ defmodule Canaryd.CLI do
       canaryd status             current health snapshot
       canaryd reclaim [--dry-run]  inspect quiet Codex helpers; --dry-run preserves observations
       canaryd clean              remove eligible build caches and redundant forgotten workspaces
-      canaryd config build-retention [Nh]  show or set build retention (default: 24h, range: 1h..87600h)
+      canaryd config build-retention [Nh]  show or set build retention (default: 1h, range: 1h..87600h)
       canaryd config storage-threshold [NG]  show or set Data-volume cleanup threshold (default: 10G, range: 1G..1024G)
       canaryd config               list all decision thresholds
       canaryd config --path        print the editable config file path
@@ -366,7 +366,7 @@ defmodule Canaryd.CLI do
       canaryd --version          show the installed version
 
       --check-interval 5m        monitoring interval (whole minutes dividing 24h; units: s, m, h)
-      --build-retention 24h      cache retention (1h..87600h)
+      --build-retention 1h       cache retention (1h..87600h)
 
       start/config accept all options; clean accepts --build-retention.
       Environment: CANARYD_CHECK_INTERVAL, CANARYD_BUILD_RETENTION.
