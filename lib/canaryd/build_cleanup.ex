@@ -1,8 +1,8 @@
 defmodule Canaryd.BuildCleanup do
   @moduledoc """
   Removes Xcode/Cargo artifacts, orphaned Bazel output bases, and shared Bazel
-  repository entries. Ordinary cleanup applies retention; emergency cleanup
-  stops builds first and can remove recent validated artifacts.
+  repository entries. Manual cleanup applies retention. Pressure cleanup may
+  remove recent idle Rust targets; emergency cleanup stops builds first.
 
   Candidate discovery and process checks are intentionally conservative. A
   path is removed only after its identity and process state have been
@@ -180,6 +180,8 @@ defmodule Canaryd.BuildCleanup do
             now |> Duration.add(-retention) |> DateTime.to_unix(:second)
           end
 
+        rust_cutoff = if Keyword.get(options, :mode) == :pressure, do: nil, else: cutoff
+
         cache_cutoff = cutoff || DateTime.to_unix(now, :second)
         workspace_cutoff = now |> Duration.add(-retention) |> DateTime.to_unix(:second)
 
@@ -193,7 +195,7 @@ defmodule Canaryd.BuildCleanup do
             ) ++
               temporary_rust_candidates(rust_context),
             rust_context,
-            cutoff,
+            rust_cutoff,
             process_names,
             process_scanner
           )

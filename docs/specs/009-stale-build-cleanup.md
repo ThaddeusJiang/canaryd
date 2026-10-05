@@ -23,8 +23,8 @@ archives, developer credentials, Simulator data, or active build artifacts.
   - A manual `canaryd clean` command.
   - Redundant forgotten JJ workspaces and orphaned Git worktrees under the
     strict checks in [spec 012](./012-forgotten-workspace-cleanup.md).
-  - A per-user retention setting, defaulting to 24 hours, shared by automatic
-    and manual cleanup.
+  - A per-user retention setting, defaulting to 24 hours, for manual cleanup
+    and automatic categories other than idle Cargo targets under disk pressure.
   - Local event history with counts, reclaimed bytes, and bounded skip reasons.
 - Out of scope:
   - Xcode Archives, DeviceSupport, SDKs, UserData, signing identities, and
@@ -95,9 +95,11 @@ requiring a restart. Configuration commands do
 not start monitoring, install notification helpers or run cleanup.
 
 1. Retain an Xcode/Cargo candidate when the directory or any descendant was modified
-   within the configured retention period.
+   within the configured retention period, except an idle Cargo target during
+   pressure-triggered cleanup.
 2. Delete an Xcode/Cargo candidate only when every entry in its tree has reached
-   the configured retention period; the exact cutoff is eligible.
+   the configured retention period; the exact cutoff is eligible. Under disk
+   pressure, a validated idle Cargo target may be removed at any age.
 3. Skip all Xcode candidates while a current-user `Xcode`, `Simulator`,
    `xcodebuild`, or `xctest` process is active.
 4. Inspect the working directory of current-user build processes and retain a
@@ -279,7 +281,7 @@ Given:
 - No protected Rust process is active.
 
 When:
-- A pressure-triggered or manual cleanup discovers its default roots.
+- A manual cleanup discovers its default roots.
 
 Then:
 - Only the stale target is removed; the backup and other files remain.

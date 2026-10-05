@@ -195,7 +195,7 @@ defmodule Canaryd.Checker do
     monitor_state =
       Store.get_value(state, :disk_pressure, DiskPressureMonitor.default_state())
 
-    cleaner = Keyword.get(options, :cleaner, &BuildCleanup.run/0)
+    cleaner = Keyword.get(options, :cleaner, fn -> BuildCleanup.run(mode: :pressure) end)
 
     emergency_cleaner =
       Keyword.get(options, :emergency_cleaner, fn -> BuildCleanup.run(mode: :emergency) end)

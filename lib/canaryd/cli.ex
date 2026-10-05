@@ -391,7 +391,7 @@ defmodule Canaryd.CLI do
         if emergency,
           do:
             Keyword.get(options, :emergency_cleaner, fn -> BuildCleanup.run(mode: :emergency) end),
-          else: Keyword.get(options, :cleaner, &BuildCleanup.run/0)
+          else: Keyword.get(options, :cleaner, fn -> BuildCleanup.run(mode: :pressure) end)
 
       case cleaner.() do
         {:ok, result} ->

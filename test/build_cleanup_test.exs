@@ -456,6 +456,37 @@ defmodule Canaryd.BuildCleanupTest do
     refute File.exists?(candidate)
   end
 
+  test "pressure cleanup removes a recent idle Rust target without stopping another build", %{
+    root: root
+  } do
+    projects = Path.join(root, "Projects")
+    idle = cargo_target(Path.join([projects, "idle", "target"]))
+    active = cargo_target(Path.join([projects, "active", "target"]))
+    now = ~U[2030-01-01 00:00:00Z]
+    for path <- [idle, active], do: age_tree(path, Duration.add(now, -Duration.hours(1)))
+
+    options = [
+      now: now,
+      rust_roots: [projects],
+      process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
+      build_stopper: fn -> flunk("pressure cleanup must not stop compilers") end,
+      build_activity_scanner: fn -> {:ok, %{cwds: [Path.dirname(active)]}} end,
+      rust_activity_scanner: fn ->
+        {:ok, %{paths: [Path.join(active, "debug/app")], names: MapSet.new()}}
+      end
+    ]
+
+    assert run(root, options).removed == []
+    assert File.dir?(idle)
+
+    result = run(root, Keyword.put(options, :mode, :pressure))
+    assert Enum.map(result.removed, & &1.path) == [idle]
+    assert result.terminated_build_processes == 0
+    assert result.skipped.rust == :active_target
+    refute File.exists?(idle)
+    assert File.dir?(active)
+  end
+
   test "removes read-only backup directories and preserves external hard links", %{root: root} do
     target = cargo_target(Path.join([root, ".codex", "workspace-backups", "task", "target"]))
     artifact = Path.join(target, "debug/app")
