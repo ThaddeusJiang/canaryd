@@ -6,7 +6,8 @@ output bases, shared Bazel repository caches, and stale sccache objects.
 ## Purpose
 
 Reclaim disk space from reproducible build outputs without deleting source,
-archives, developer credentials, Simulator data, or active build artifacts.
+archives, developer credentials, or Simulator data. Disk pressure allows
+removal of active Cargo output under [spec 013](./013-storage-pressure-and-process-observation.md).
 
 ## Scope
 
@@ -94,6 +95,9 @@ cutoff. A setting changed during cleanup applies to the next round, without
 requiring a restart. Configuration commands do
 not start monitoring, install notification helpers or run cleanup.
 
+The age and process rules below apply to manual Cargo cleanup. Automatic
+Cargo cleanup under disk pressure follows [spec 013](./013-storage-pressure-and-process-observation.md).
+
 1. Retain an Xcode/Cargo candidate when the directory or any descendant was modified
    within the configured retention period.
 2. Delete an Xcode/Cargo candidate only when every entry in its tree has reached
@@ -105,7 +109,7 @@ not start monitoring, install notification helpers or run cleanup.
    containing any running executable. Resolve executable aliases, preserve
    path-component boundaries, and treat uncertain activity as protection.
    A protected target does not block unrelated idle targets.
-5. If process inspection is unavailable, delete nothing.
+5. If process inspection is unavailable, keep the candidates that require it.
 6. Recheck the relevant process class immediately before each deletion.
 7. Never follow a symbolic link while discovering, measuring, or deleting a
    candidate.

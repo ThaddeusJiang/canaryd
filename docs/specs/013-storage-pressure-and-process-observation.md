@@ -9,17 +9,15 @@ detached compiler work visible, with an explicit emergency cleanup policy.
 - Enter guarded cleanup below the configured free-space threshold (default 10 GiB).
 - Allow users to view and change the threshold in whole GiB without restarting
   monitoring; invalid or unreadable settings stop pressure-triggered cleanup.
-- Reuse the existing fail-closed build cleanup categories. Ordinary cleanup
-  removes a validated idle Cargo target only after its entire tree reaches the
-  configured retention period, one hour by default.
-- The ordinary free-space threshold defaults to 10 GiB. Ordinary cleanup does
-  not stop compilers; it may reclaim an idle target despite a build in a
-  different project and may remove redundant forgotten workspaces under spec 012.
+- Start with confirmed Cargo build directories. Check their markers, owner,
+  path, and identity. Skip process and age checks for these directories.
+- Keep the existing checks for all other cleanup targets. Ordinary cleanup
+  does not stop compilers and can reclaim redundant workspaces under spec 012.
 - Apply the configured cleanup cooldown (default one hour) and clear the pressure state after recovery.
 - Below the configurable emergency threshold (default 1024 MiB), bypass the
-  ordinary cooldown, check for cleanup candidates, terminate current-user
-  build processes and descendants when candidates exist, then remove validated
-  build output regardless of its age.
+  ordinary cooldown. Check for other emergency candidates after Cargo
+  cleanup. If those candidates exist, stop current-user build processes and
+  their descendants before removing eligible output.
 - Read global macOS swap usage and correlate sustained growth with the largest
   observed application RSS values.
 - Observe current-user `cargo`, `rustc`, `clang`, `cmake`, `ninja`, `make`,
@@ -30,11 +28,10 @@ detached compiler work visible, with an explicit emergency cleanup policy.
 ## Safety boundaries
 
 - The threshold never authorizes arbitrary path deletion.
-- Active or unverifiable build output remains protected by the existing cleanup
-  rules during ordinary cleanup. Emergency cleanup may delete the target of a
-  terminated compiler; an unrelated running executable still protects its target.
-- If process scanning or termination cannot be confirmed, emergency cleanup
-  does not delete candidates.
+- A build can fail if Canaryd removes its Cargo output. The user can run the
+  build again.
+- Failed process inspection or termination prevents emergency deletion of
+  targets that require those checks.
 - Swap is global; a related RSS process is not declared the cause of swap.
 - Detached build alerts do not stop processes.
 - The emergency threshold is the only automatic path that stops build processes.
@@ -52,10 +49,9 @@ and the existing cleanup lock is available,
 
 When a full health check runs,
 
-Then canaryd runs the existing guarded build cleanup, records reclaimed bytes
-and skip reasons, removes a Cargo target whose tree was unmodified for the
-configured hour and has no active user, and never broadens cleanup to arbitrary
-caches or source.
+Then canaryd removes a confirmed Cargo directory even when it contains fresh
+output and process inspection is unavailable. It records reclaimed bytes
+and preserves source, unmarked directories, and paths that fail validation.
 
 ### BDD-02 Avoid repeated cleanup
 
@@ -103,8 +99,8 @@ cleanup lock is available,
 
 When the next health check runs,
 
-Then canaryd bypasses the ordinary cleanup cooldown, terminates current-user
-build processes and descendants, and removes validated build artifacts without
-the retention age limit. If a build process remains active, candidate deletion
-does not start. Unique source and registered worktrees are not deletion
-candidates; redundant forgotten checkouts retain their normal safety checks.
+Then canaryd bypasses the ordinary cleanup cooldown and reclaims confirmed
+Cargo directories first. When other emergency candidates require a build stop,
+Canaryd stops the build processes before removing those candidates. If it
+cannot confirm the stop, those candidates stay in place. Redundant forgotten
+checkouts retain their normal safety checks.

@@ -216,22 +216,19 @@ source may already be committed while reproducible build output continues to
 consume disk space.
 
 When free space falls below the configured threshold (10 GiB by default),
-Canaryd checks fixed safe roots and requires Xcode/Cargo directory trees to be
-untouched for one hour by default. Ordinary cleanup does not stop compilers.
-It skips Xcode cleanup while Xcode, Simulator, `xcodebuild`, or `xctest` is active.
-A running Cargo/Rust build protects its own target; an unrelated build does not
-block an idle target. A service running from a target also protects it. Canaryd
-never follows symbolic links or removes Archives, Simulator data, or Cargo
-registry caches.
+Canaryd first removes confirmed Cargo build directories. It checks the path,
+owner, directory identity, and Cargo markers. File age and running processes
+do not block this step. A build that uses a removed directory can fail and
+must then run again.
 
-Below the configurable emergency threshold (1 GiB by default), Canaryd first
-checks for cleanup candidates. If it finds any, it terminates current-user
-compiler processes and their child processes. It then
-removes validated build artifacts without the age limit, including a Cargo
-`target` that was being compiled. Builds interrupted this way must be restarted.
-Running services from a target still protect it, and failed process inspection
-or termination prevents emergency deletion. The next scheduled health check
-detects the threshold; the check interval defaults to five minutes.
+Other targets keep their usual checks. For example, Xcode cleanup requires an
+idle build tree that meets the retention period, which defaults to one hour.
+
+Below the configurable emergency threshold (1 GiB by default), Canaryd also
+bypasses the ordinary cleanup cooldown. If it finds other emergency
+candidates, it stops build processes before it removes those candidates.
+A failed stop keeps those candidates in place. The check interval defaults to
+five minutes.
 
 Cargo discovery includes `~/.codex/workspace-backups` as well as live projects
 and Codex worktrees, plus Cargo targets directly under `/private/tmp`.
@@ -542,7 +539,8 @@ Canaryd confirms abnormal behavior before changing another process.
 | Idle Simulator | 15 minutes since the latest known device or foreground activity | Shut down the exact booted UDID on the next check |
 | Quiet Codex tool hosts | 30-minute CPU/identity observation window without children | Report and retain; existing sessions cannot safely reconnect |
 | Leftover Playwright Chrome for Testing | Not frontmost, no Playwright runner, and three unchanged process observations | Send `SIGTERM` to the revalidated exact PID |
-| Stale build output | Complete tree inactive for the configured retention (default 1h) and related tools idle | Remove a validated DerivedData or Cargo target directory |
+| Cargo build output under disk pressure | Free space below the configured threshold (default 10 GiB) | Remove confirmed Cargo build directories regardless of age or process activity |
+| Stale build output | Complete tree inactive for the configured retention (default 1h) and related tools idle | Remove validated DerivedData or, during manual cleanup, a confirmed Cargo build directory |
 | CleanClip process missing | Process check | Start it in the background |
 | CleanClip function missing | Reversible probe every 30 minutes when healthy; retry failures next check | Restart quietly; notify only when recovery is blocked |
 | Other system health failures | Three consecutive full checks | Send one system-degraded notification; pressure warnings share the notification above |
@@ -584,11 +582,10 @@ The shared safety rules are:
   It does not wait for whole-Mac user idle.
 - Playwright Chrome cleanup revalidates an exact PID, sends only `SIGTERM`, and
   never stores the command line used for classification.
-- Ordinary Xcode/Cargo cleanup does not stop related tools and removes only
-  validated, reproducible directories whose complete trees have reached the
-  configured retention (default 1h), including Cargo targets in Codex workspace
-  backups and directly under `/private/tmp`. Targets containing running
-  executables are retained.
+- Manual Cargo cleanup protects active targets and applies the configured
+  retention. Under disk pressure, confirmed Cargo directories are eligible
+  regardless of age and process activity. Ordinary Xcode cleanup still checks
+  process activity and retention.
 - Bazel output-base cleanup requires a missing local workspace, no active server, and an
   exclusive native lock on that output base. Starting clients or unavailable
   process inspection block deletion.

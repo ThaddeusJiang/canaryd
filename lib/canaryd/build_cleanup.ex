@@ -1,12 +1,10 @@
 defmodule Canaryd.BuildCleanup do
   @moduledoc """
-  Removes Xcode/Cargo artifacts, orphaned Bazel output bases, and shared Bazel
-  repository entries. Manual and pressure cleanup apply retention; emergency
-  cleanup stops builds first and can remove recent validated artifacts.
+  Removes validated build output and redundant workspaces.
 
-  Candidate discovery and process checks are intentionally conservative. A
-  path is removed only after its identity and process state have been
-  revalidated, together with tree age or a missing workspace as appropriate.
+  Disk pressure permits removal of confirmed Cargo build directories at any
+  age and without process inspection. Manual Cargo cleanup checks retention
+  and process activity. Other targets use their existing safeguards.
   """
 
   alias Canaryd.{
@@ -70,9 +68,8 @@ defmodule Canaryd.BuildCleanup do
     FileLock.with_lock(
       lock_path,
       fn ->
-        with {:ok, retention} <- Canaryd.Config.retention(options, home: home),
-             {:ok, stopped} <- stop_builds(home, options) do
-          {:ok, Map.put(cleanup(home, retention, options), :terminated_build_processes, stopped)}
+        with {:ok, retention} <- Canaryd.Config.retention(options, home: home) do
+          cleanup(home, retention, options)
         end
       end,
       create: true
@@ -80,29 +77,18 @@ defmodule Canaryd.BuildCleanup do
   end
 
   defp stop_builds(home, options) do
-    if Keyword.get(options, :mode) == :emergency and emergency_candidates?(home, options) do
+    if Keyword.get(options, :mode) == :emergency and emergency_candidates?(home) do
       Keyword.get(options, :build_stopper, &BuildProcessStop.run/0).()
     else
       {:ok, 0}
     end
   end
 
-  defp emergency_candidates?(home, options) do
-    rust_roots = Keyword.get_lazy(options, :rust_roots, fn -> default_rust_roots(home) end)
-    stat_reader = Keyword.get(options, :stat_reader, &File.lstat/1)
-
-    rust_context = %{
-      home: home,
-      tmp_root: Keyword.get(options, :rust_tmp_root, "/private/tmp"),
-      stat_reader: stat_reader
-    }
-
+  defp emergency_candidates?(home) do
     xcode_root = Path.join([home, "Library", "Developer", "Xcode", "DerivedData"])
 
     Canaryd.SccacheCleanup.candidates?(home) or
       xcode_candidates(xcode_root) != [] or
-      rust_candidates(rust_roots, filesystem_root: home, stat_reader: stat_reader) != [] or
-      temporary_rust_candidates(rust_context) != [] or
       BazelCache.candidates(home) != [] or BazelRepositoryCache.candidates?(home)
   end
 
@@ -141,8 +127,6 @@ defmodule Canaryd.BuildCleanup do
   end
 
   defp cleanup(home, retention, options) do
-    now = Keyword.get(options, :now, DateTime.utc_now())
-    process_scanner = Keyword.get(options, :process_scanner, &active_process_names/0)
     rust_roots = Keyword.get_lazy(options, :rust_roots, fn -> default_rust_roots(home) end)
 
     rust_context = %{
@@ -153,7 +137,8 @@ defmodule Canaryd.BuildCleanup do
       build_activity_scanner: Keyword.get(options, :build_activity_scanner, &BuildActivity.scan/0)
     }
 
-    xcode_root = Path.join([home, "Library", "Developer", "Xcode", "DerivedData"])
+    pressure? = Keyword.get(options, :mode) in [:pressure, :emergency]
+    process_scanner = Keyword.get(options, :process_scanner, &active_process_names/0)
 
     result = %{
       removed: [],
@@ -171,10 +156,45 @@ defmodule Canaryd.BuildCleanup do
       sccache: nil
     }
 
+    result =
+      if pressure? do
+        cleanup_rust(result, rust_roots, rust_context, nil, MapSet.new(), process_scanner)
+      else
+        result
+      end
+
+    case stop_builds(home, options) do
+      {:ok, stopped} ->
+        result = Map.put(result, :terminated_build_processes, stopped)
+
+        {:ok,
+         cleanup_guarded(result, rust_roots, rust_context, retention, process_scanner, options)}
+
+      {:error, reason} when result.removed == [] and result.failures == [] ->
+        {:error, reason}
+
+      {:error, reason} ->
+        failure = %{kind: :build_stop, path: home, reason: reason}
+
+        {:ok,
+         Map.put(
+           %{result | failures: [failure | result.failures]},
+           :terminated_build_processes,
+           0
+         )}
+    end
+  end
+
+  defp cleanup_guarded(result, rust_roots, rust_context, retention, process_scanner, options) do
+    home = rust_context.home
+    xcode_root = Path.join([home, "Library", "Developer", "Xcode", "DerivedData"])
+    now = Keyword.get(options, :now, DateTime.utc_now())
+    mode = Keyword.get(options, :mode)
+
     case process_scanner.() do
       {:ok, process_names} ->
         cutoff =
-          if Keyword.get(options, :mode) == :emergency do
+          if mode == :emergency do
             nil
           else
             now |> Duration.add(-retention) |> DateTime.to_unix(:second)
@@ -184,22 +204,14 @@ defmodule Canaryd.BuildCleanup do
         workspace_cutoff = now |> Duration.add(-retention) |> DateTime.to_unix(:second)
 
         result =
-          result
-          |> cleanup_category(
-            :rust,
-            rust_candidates(rust_roots,
-              filesystem_root: home,
-              stat_reader: rust_context.stat_reader
-            ) ++
-              temporary_rust_candidates(rust_context),
-            rust_context,
-            cutoff,
-            process_names,
-            process_scanner
-          )
+          if mode in [:pressure, :emergency] do
+            result
+          else
+            cleanup_rust(result, rust_roots, rust_context, cutoff, process_names, process_scanner)
+          end
 
         result =
-          if Keyword.get(options, :mode) == :emergency,
+          if mode == :emergency,
             do: cleanup_sccache(result, home, cache_cutoff, options),
             else: result
 
@@ -237,14 +249,18 @@ defmodule Canaryd.BuildCleanup do
           |> Map.update!(:failures, &Enum.reverse/1)
           |> cleanup_repositories(home, cache_cutoff, options)
 
-        if Keyword.get(options, :mode) == :emergency,
+        if mode == :emergency,
           do: result,
           else: cleanup_sccache(result, home, cache_cutoff, options)
 
       {:error, _reason} ->
         put_in(result.skipped, %{
           xcode: :process_scan_unavailable,
-          rust: :process_scan_unavailable,
+          rust:
+            if(mode in [:pressure, :emergency],
+              do: result.skipped.rust,
+              else: :process_scan_unavailable
+            ),
           bazel: :process_scan_unavailable,
           bazel_repository: :process_scan_unavailable,
           sccache: :process_scan_unavailable,
@@ -252,6 +268,21 @@ defmodule Canaryd.BuildCleanup do
           git_worktree: :process_scan_unavailable
         })
     end
+  end
+
+  defp cleanup_rust(result, roots, context, cutoff, process_names, process_scanner) do
+    candidates =
+      rust_candidates(roots, filesystem_root: context.home, stat_reader: context.stat_reader)
+
+    cleanup_category(
+      result,
+      :rust,
+      Enum.uniq(candidates ++ temporary_rust_candidates(context)),
+      context,
+      cutoff,
+      process_names,
+      process_scanner
+    )
   end
 
   defp cleanup_workspaces(result, home, roots, cutoff, process_names, process_scanner, options) do
@@ -443,6 +474,16 @@ defmodule Canaryd.BuildCleanup do
       {:error, _path, reason} -> {:error, reason}
       {:error, reason} -> {:error, reason}
       true -> {:error, :active_build}
+    end
+  end
+
+  defp rust_ready(path, context, identity, nil, _process_scanner) do
+    with true <- valid_candidate?(:rust, path, context),
+         {:ok, stat} <- context.stat_reader.(path),
+         ^identity <- artifact_identity(stat) do
+      :ok
+    else
+      _ -> :kept
     end
   end
 

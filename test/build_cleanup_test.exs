@@ -44,44 +44,39 @@ defmodule Canaryd.BuildCleanupTest do
     assert Enum.any?(result.removed, &(&1.path == target))
   end
 
-  test "emergency stops builds before removing recent validated artifacts", %{root: root} do
+  test "emergency removes fresh Cargo output without stopping builds", %{root: root} do
     target = cargo_target(Path.join([root, "Projects", "example", "target"]))
-    source = Path.join([root, "Projects", "example", "src", "main.rs"])
-    File.mkdir_p!(Path.dirname(source))
-    File.write!(source, "fn main() {}")
-    now = ~U[2030-01-01 00:00:00Z]
 
     result =
       run(root,
         mode: :emergency,
-        now: now,
-        rust_roots: [Path.join(root, "Projects")],
+        build_stopper: fn -> flunk("a Cargo target alone must not stop builds") end,
+        process_scanner: fn -> {:error, :unavailable} end
+      )
+
+    assert result.terminated_build_processes == 0
+    assert [%{kind: :rust, path: ^target}] = result.removed
+    refute File.exists?(target)
+  end
+
+  test "an emergency build stop failure preserves Rust results and protects other output", %{
+    root: root
+  } do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    xcode = xcode_candidate(root, "example")
+
+    result =
+      run(root,
+        mode: :emergency,
         build_stopper: fn ->
-          assert File.dir?(target)
-          send(self(), :builds_stopped)
-          {:ok, 2}
+          refute File.exists?(target)
+          {:error, :build_process_active}
         end
       )
 
-    assert_received :builds_stopped
-    assert result.terminated_build_processes == 2
-    assert Enum.any?(result.removed, &(&1.path == target))
-    refute File.exists?(target)
-    assert File.read!(source) == "fn main() {}"
-  end
-
-  test "failed build stop prevents emergency deletion", %{root: root} do
-    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
-
-    assert {:error, :build_process_active} =
-             BuildCleanup.run(
-               home: root,
-               lock_path: Path.join(root, "cleanup.lock"),
-               mode: :emergency,
-               build_stopper: fn -> {:error, :build_process_active} end
-             )
-
-    assert File.dir?(target)
+    assert [%{kind: :rust, path: ^target}] = result.removed
+    assert [%{reason: :build_process_active}] = result.failures
+    assert File.dir?(xcode)
   end
 
   test "emergency with no candidates does not terminate builds", %{root: root} do
@@ -434,58 +429,55 @@ defmodule Canaryd.BuildCleanupTest do
     assert File.dir?(candidate)
   end
 
-  test "ordinary pressure cleanup can remove an idle target while cargo builds elsewhere", %{
-    root: root
-  } do
-    candidate = cargo_target(Path.join([root, "Projects", "idle", "target"]))
+  test "pressure removes fresh Cargo output even when process inspection fails", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    source = Path.join(Path.dirname(target), "main.rs")
+    File.write!(source, "fn main() {}")
+    unmarked = Path.join([root, "Projects", "unmarked", "target"])
+    File.mkdir_p!(unmarked)
+    outside = cargo_target(Path.join(root, ".protected-target"))
+    link = Path.join([root, "Projects", "linked-target"])
+    File.ln_s!(outside, link)
+    xcode = xcode_candidate(root, "example")
 
     result =
       run(root,
-        now: ~U[2030-01-01 00:00:00Z],
-        process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
-        build_stopper: fn -> flunk("ordinary cleanup must not stop compilers") end,
-        build_activity_scanner: fn ->
-          {:ok, %{cwds: [Path.join(root, "Projects/active")]}}
+        mode: :pressure,
+        process_scanner: fn ->
+          refute File.exists?(target)
+          {:error, :unavailable}
         end,
-        rust_activity_scanner: fn ->
-          {:ok, %{paths: [Path.join(root, "Projects/active/target")], names: MapSet.new()}}
-        end
+        rust_activity_scanner: fn -> flunk("must not inspect the Cargo target's processes") end,
+        build_activity_scanner: fn -> flunk("must not inspect Cargo build directories") end
       )
 
-    assert [%{kind: :rust, path: ^candidate}] = result.removed
-    refute File.exists?(candidate)
+    assert [%{kind: :rust, path: ^target}] = result.removed
+    assert result.reclaimed_bytes >= byte_size("rust build artifact")
+    assert result.skipped.rust == nil
+    assert result.skipped.xcode == :process_scan_unavailable
+    assert Enum.all?([unmarked, outside, link, xcode], &File.dir?/1)
+    assert File.read!(source) == "fn main() {}"
   end
 
-  test "pressure cleanup retains Rust output used within one hour and active builds", %{
-    root: root
-  } do
-    projects = Path.join(root, "Projects")
-    idle = cargo_target(Path.join([projects, "idle", "target"]))
-    recent = cargo_target(Path.join([projects, "recent", "target"]))
-    active = cargo_target(Path.join([projects, "active", "target"]))
-    now = ~U[2030-01-01 00:00:00Z]
-    age_tree(idle, Duration.add(now, -Duration.hours(1)))
-    age_tree(active, Duration.add(now, -Duration.hours(2)))
-    age_tree(recent, Duration.add(now, -Duration.minutes(30)))
+  test "pressure protects a Cargo directory replaced before deletion", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    artifact = Path.join(target, "debug/app")
+    original = Path.join(root, ".original-target")
 
-    options = [
-      now: now,
-      build_retention: "1h",
-      rust_roots: [projects],
-      process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
-      build_stopper: fn -> flunk("pressure cleanup must not stop compilers") end,
-      build_activity_scanner: fn -> {:ok, %{cwds: [Path.dirname(active)]}} end,
-      rust_activity_scanner: fn ->
-        {:ok, %{paths: [Path.join(active, "debug/app")], names: MapSet.new()}}
+    stat_reader = fn path ->
+      if path == artifact and not File.exists?(original) do
+        File.rename!(target, original)
+        cargo_target(target)
       end
-    ]
 
-    result = run(root, Keyword.put(options, :mode, :pressure))
-    assert Enum.map(result.removed, & &1.path) == [idle]
-    assert result.terminated_build_processes == 0
-    refute File.exists?(idle)
-    assert File.dir?(recent)
-    assert File.dir?(active)
+      File.lstat(path)
+    end
+
+    result = run(root, mode: :pressure, stat_reader: stat_reader)
+
+    assert result.removed == []
+    assert File.exists?(original)
+    assert File.exists?(artifact)
   end
 
   test "removes read-only backup directories and preserves external hard links", %{root: root} do
