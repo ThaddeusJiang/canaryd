@@ -20,7 +20,7 @@ The keys cover:
 - Storage-pressure cleanup cooldown. The separate `storage-threshold` and
   `build-retention` settings continue to govern free-space entry and validated
   build-output age.
-- Full-check cadence and the local daily cleanup time.
+- Full-check cadence and the emergency free-space threshold.
 
 `canaryd config --path` prints the editable per-user file at
 `~/Library/Application Support/canaryd/config.conf`. It accepts `key=value`
@@ -49,7 +49,7 @@ spacing relationships above must also hold.
 | Key | Default and range |
 | --- | --- |
 | `storage-threshold` | default 20G, range 1G..1024G |
-| `build-retention` | default 24h, range 1h..87600h |
+| `build-retention` | default 1h, range 1h..87600h |
 +| `build-process-alert-cooldown` | default 60m, range 1m..1440m |
 | `build-process-confirmations` | default 3, range 1..20 |
 | `build-process-max-gap` | default 10m, range 1m..120m |
@@ -58,7 +58,6 @@ spacing relationships above must also hold.
 | `cleanclip-failure-confirmations` | default 3, range 1..20 |
 | `cleanclip-probe-interval` | default 30m, range 1m..1440m |
 | `cleanclip-restart-cooldown` | default 60m, range 15m..1440m |
-| `cleanup-time` | default 04:00, local clock 00:00..23:59 |
 | `codex-confirmations` | default 3, range 1..20 |
 | `codex-max-gap` | default 10m, range 1m..120m |
 | `codex-min-idle` | default 30m, range 1m..1440m |
@@ -72,6 +71,7 @@ spacing relationships above must also hold.
 | `playwright-confirmations` | default 3, range 2..20 |
 | `simulator-min-idle` | default 15m, range 5m..1440m |
 | `storage-cleanup-cooldown` | default 60m, range 15m..1440m |
+| `storage-emergency-threshold` | default 1024M, range 128M..4096M |
 | `swap-alert-cooldown` | default 60m, range 1m..1440m |
 | `swap-confirmations` | default 3, range 1..20 |
 | `swap-max-gap` | default 10m, range 1m..120m |

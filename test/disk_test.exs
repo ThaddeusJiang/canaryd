@@ -18,8 +18,8 @@ defmodule Canaryd.DiskTest do
   end
 
   test "recognizes the absolute free-space guard" do
-    refute Disk.pressure?(%{used_percent: 80, available_bytes: 20 * 1_024 * 1_024 * 1_024})
-    assert Disk.pressure?(%{used_percent: 80, available_bytes: 19 * 1_024 * 1_024 * 1_024})
+    refute Disk.pressure?(%{used_percent: 80, available_bytes: 10 * 1_024 * 1_024 * 1_024})
+    assert Disk.pressure?(%{used_percent: 80, available_bytes: 9 * 1_024 * 1_024 * 1_024})
   end
 
   test "ignores used percentage when enough space is available" do

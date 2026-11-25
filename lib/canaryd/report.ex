@@ -9,7 +9,7 @@ defmodule Canaryd.Report do
     :termination_failed,
     :process_start_failed
   ]
-  @cleanup [:cleanup_completed, :pressure_cleanup_completed]
+  @cleanup [:cleanup_completed, :pressure_cleanup_completed, :emergency_cleanup_completed]
 
   def build(events, since \\ nil) do
     events =

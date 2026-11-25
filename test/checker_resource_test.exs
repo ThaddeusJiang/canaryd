@@ -1,7 +1,7 @@
 defmodule Canaryd.CheckerResourceTest do
   use ExUnit.Case, async: false
 
-  alias Canaryd.{Checker, DiskPressureConfig, Store, Duration}
+  alias Canaryd.{BuildCleanup, Checker, DiskPressureConfig, Store, Duration}
 
   @t0 ~U[2026-09-23 00:00:00Z]
   @gb 1_024 * 1_024 * 1_024
@@ -47,6 +47,57 @@ defmodule Canaryd.CheckerResourceTest do
     end)
   end
 
+  test "the storage threshold controls removal of a fresh Cargo artifact" do
+    home = System.fetch_env!("HOME")
+    projects = Path.join(home, "Projects")
+    target = Path.join(projects, "target")
+    artifact = Path.join(target, "app")
+    bytes = 4 * 1_024 * 1_024
+
+    File.mkdir_p!(target)
+
+    File.write!(Path.join(target, "CACHEDIR.TAG"), """
+    Signature: 8a477f597d28d172789f06886806bc55
+    # This file is a cache directory tag created by cargo.
+    """)
+
+    File.write!(Path.join(target, ".rustc_info.json"), "{}")
+    File.write!(artifact, :binary.copy(<<42>>, bytes))
+    assert File.stat!(artifact).size == bytes
+
+    cleaner = fn ->
+      BuildCleanup.run(
+        mode: :pressure,
+        home: home,
+        rust_roots: [projects],
+        rust_tmp_root: Path.join(home, ".tmp"),
+        process_scanner: fn -> {:error, :unavailable} end
+      )
+    end
+
+    Store.with_tables(fn state, events ->
+      check = fn available ->
+        Checker.check_disk_pressure(
+          state,
+          events,
+          %{disk_usage: %{used_percent: 98, available_bytes: available}},
+          cleaner: cleaner,
+          notifier: fn _, _ -> :ok end,
+          now: @t0
+        )
+      end
+
+      assert check.(10 * @gb).actions == []
+      assert File.exists?(artifact)
+
+      assert check.(10 * @gb - 1).actions == [:cleaned]
+      refute File.exists?(target)
+      assert [event] = Store.list_events(events, :storage)
+      assert event.removed == 1
+      assert event.reclaimed_bytes >= bytes
+    end)
+  end
+
   test "uses the latest configured storage threshold on each check" do
     usage = %{used_percent: 96, available_bytes: 15 * @gb}
     assert DiskPressureConfig.set("10G") == {:ok, 10 * @gb}
@@ -80,6 +131,39 @@ defmodule Canaryd.CheckerResourceTest do
       assert second.pressured
       assert second.actions == [:cleaned]
       assert_received :cleanup_called
+    end)
+  end
+
+  test "emergency cleanup starts below 1 GiB even during normal cooldown" do
+    usage = fn mib -> %{used_percent: 99, available_bytes: mib * 1_024 * 1_024} end
+
+    Store.with_tables(fn state, events ->
+      normal = fn ->
+        {:ok, %{removed: [], reclaimed_bytes: 0, failures: [], skipped: %{}}}
+      end
+
+      emergency = fn ->
+        send(self(), :emergency_called)
+        normal.()
+      end
+
+      Checker.check_disk_pressure(state, events, %{disk_usage: usage.(2_000)},
+        cleaner: normal,
+        emergency_cleaner: emergency,
+        notifier: fn _, _ -> :ok end,
+        now: @t0
+      )
+
+      result =
+        Checker.check_disk_pressure(state, events, %{disk_usage: usage.(900)},
+          cleaner: normal,
+          emergency_cleaner: emergency,
+          notifier: fn _, _ -> :ok end,
+          now: Duration.add(@t0, Duration.minutes(1))
+        )
+
+      assert result.actions == [:cleaned]
+      assert_received :emergency_called
     end)
   end
 

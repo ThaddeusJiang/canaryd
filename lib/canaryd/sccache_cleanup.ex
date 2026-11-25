@@ -4,6 +4,30 @@ defmodule Canaryd.SccacheCleanup do
   @hex String.graphemes("0123456789abcdef")
   @builders ~r/^(cargo|rustc|clang(\+\+)?|gcc|g\+\+|cc1|xcodebuild|sccache-dist)(-\d+)?$/
 
+  @doc false
+  def candidates?(home) do
+    root = Path.join(home, "Library/Caches/Mozilla.sccache")
+
+    safe_directory?(root, home) and
+      Enum.any?(@hex, fn a ->
+        Enum.any?(@hex, fn b ->
+          bucket = Path.join([root, a, b])
+
+          safe_directory?(bucket, home) and
+            case File.ls(bucket) do
+              {:ok, entries} ->
+                Enum.any?(entries, fn name ->
+                  Regex.match?(~r/\A#{a}#{b}[0-9a-f]{62}\z/, name) and
+                    match?({:ok, %{type: :regular}}, File.lstat(Path.join(bucket, name)))
+                end)
+
+              _ ->
+                false
+            end
+        end)
+      end)
+  end
+
   # sccache v0.17 records LRU reads in mtime and tolerates externally evicted
   # objects. Only complete digest objects are eligible; never touch temporary
   # writes or the separate preprocessor cache. No server restart is required.

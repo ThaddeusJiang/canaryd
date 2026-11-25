@@ -17,18 +17,147 @@ defmodule Canaryd.BuildCleanupTest do
     %{root: root}
   end
 
-  test "defaults to a 24-hour retention" do
-    assert BuildCleanup.retention() == Duration.hours(24)
+  test "defaults to a one-hour retention" do
+    assert BuildCleanup.retention() == Duration.hours(1)
+  end
+
+  test "reclaims stale Rust targets before inspecting workspaces", %{root: root} do
+    projects = Path.join(root, "Projects")
+    repo = Path.join(projects, "repo")
+    target = cargo_target(Path.join(repo, "target"))
+    File.mkdir_p!(Path.join(repo, ".git"))
+    File.mkdir_p!(Path.join(repo, ".jj"))
+    File.mkdir_p!(Path.join(repo, "_jj_workspaces"))
+
+    result =
+      run(root,
+        now: ~U[2030-01-01 00:00:00Z],
+        rust_roots: [projects],
+        jj_workspace_lister: fn ^repo ->
+          send(self(), :workspace_scan_started)
+          refute File.exists?(target)
+          {:error, :unavailable}
+        end
+      )
+
+    assert_received :workspace_scan_started
+    assert Enum.any?(result.removed, &(&1.path == target))
+  end
+
+  test "emergency removes fresh Cargo output without stopping builds", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+
+    result =
+      run(root,
+        mode: :emergency,
+        build_stopper: fn -> flunk("a Cargo target alone must not stop builds") end,
+        process_scanner: fn -> {:error, :unavailable} end
+      )
+
+    assert result.terminated_build_processes == 0
+    assert [%{kind: :rust, path: ^target}] = result.removed
+    refute File.exists?(target)
+  end
+
+  test "an emergency build stop failure preserves Rust results and protects other output", %{
+    root: root
+  } do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    xcode = xcode_candidate(root, "example")
+
+    result =
+      run(root,
+        mode: :emergency,
+        build_stopper: fn ->
+          refute File.exists?(target)
+          {:error, :build_process_active}
+        end
+      )
+
+    assert [%{kind: :rust, path: ^target}] = result.removed
+    assert [%{reason: :build_process_active}] = result.failures
+    assert File.dir?(xcode)
+  end
+
+  test "emergency with no candidates does not terminate builds", %{root: root} do
+    result =
+      run(root,
+        mode: :emergency,
+        rust_roots: [],
+        build_stopper: fn -> flunk("no candidate may not interrupt a build") end
+      )
+
+    assert result.terminated_build_processes == 0
+    assert result.removed == []
+  end
+
+  test "emergency detects completed sccache objects before stopping builds", %{root: root} do
+    object = Path.join([root, "Library/Caches/Mozilla.sccache/a/a", String.duplicate("a", 64)])
+    File.mkdir_p!(Path.dirname(object))
+    File.write!(object, "cached")
+
+    result =
+      run(root,
+        mode: :emergency,
+        rust_roots: [],
+        now: ~U[2030-01-01 00:00:00Z],
+        sccache_activity_scanner: fn -> {:ok, MapSet.new()} end,
+        build_stopper: fn ->
+          assert File.exists?(object)
+          {:ok, 1}
+        end
+      )
+
+    assert result.terminated_build_processes == 1
+    assert result.sccache.removed_objects == 1
+    refute File.exists?(object)
+  end
+
+  test "emergency detects shared Bazel repository entries before stopping builds", %{root: root} do
+    entry =
+      Path.join([
+        root,
+        "Library/Caches/bazel/_bazel_test/cache/repos/v1/content_addressable/sha256",
+        String.duplicate("a", 64)
+      ])
+
+    File.mkdir_p!(entry)
+    File.write!(Path.join(entry, "file"), "downloaded dependency")
+
+    assert Canaryd.BazelRepositoryCache.candidates?(root)
+
+    result =
+      run(root,
+        mode: :emergency,
+        rust_roots: [],
+        now: ~U[2030-01-01 00:00:00Z],
+        build_stopper: fn -> {:ok, 1} end
+      )
+
+    assert result.terminated_build_processes == 1
+  end
+
+  test "unavailable cleanup lock never stops a build", %{root: root} do
+    lock = Path.join(root, "bad-lock")
+    File.mkdir_p!(lock)
+
+    assert {:error, :lock_unavailable} =
+             BuildCleanup.run(
+               home: root,
+               lock_path: lock,
+               mode: :emergency,
+               build_stopper: fn -> flunk("lock must be held before stopping builds") end
+             )
   end
 
   test "the default cutoff is shared by Xcode, temporary Cargo and Bazel entries", %{root: root} do
     now = ~U[2030-01-01 00:00:00Z]
     stale = retention_candidates(root, "old")
     recent = retention_candidates(root, "recent")
-    for path <- stale, do: age_tree(path, Duration.add(now, -Duration.hours(24)))
+    for path <- stale, do: age_tree(path, Duration.add(now, -Duration.hours(1)))
 
     for path <- recent,
-        do: age_tree(path, Duration.add(now, -Duration.hours(24) + Duration.seconds(1)))
+        do: age_tree(path, Duration.add(now, -Duration.hours(1) + Duration.seconds(1)))
 
     result = run(root, now: now, rust_roots: [])
     assert Enum.sort(Enum.map(result.removed, & &1.path)) == Enum.sort(stale)
@@ -49,7 +178,7 @@ defmodule Canaryd.BuildCleanupTest do
         now: now,
         rust_roots: [],
         process_scanner: fn ->
-          File.write!(config, "24h\n")
+          File.write!(config, "1h\n")
           {:ok, MapSet.new()}
         end
       )
@@ -84,7 +213,7 @@ defmodule Canaryd.BuildCleanupTest do
     temporary = Path.join(root, ".rust-tmp")
     stale = cargo_target(Path.join(temporary, "nmem-build"))
     recent = cargo_target(Path.join(temporary, "recent-build"))
-    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 30, 0}})
     nested = cargo_target(Path.join([temporary, "project", "target"]))
     source = Path.join([temporary, "project", "Cargo.toml"])
     File.write!(source, "[package]")
@@ -262,14 +391,14 @@ defmodule Canaryd.BuildCleanupTest do
     assert File.dir?(target)
   end
 
-  test "daily discovery removes stale backup targets but preserves the backup and recent outputs",
+  test "backup discovery removes stale targets but preserves the backup and recent outputs",
        %{root: root} do
     backup =
       Path.join([root, ".codex", "workspace-backups", "mem-cleanup", "local-files", "task"])
 
     stale = cargo_target(Path.join([backup, "nmem-rs", "target"]))
     recent = cargo_target(Path.join([backup, "another-project", "target"]))
-    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+    File.touch!(Path.join(recent, "debug/app"), {{2029, 12, 31}, {23, 30, 0}})
     protected = Path.join(backup, "unmerged.diff")
     File.write!(protected, "unmerged source changes")
     File.write!(Path.join(backup, "preserved-files.tar.gz"), "backup archive")
@@ -289,12 +418,66 @@ defmodule Canaryd.BuildCleanupTest do
     result =
       run(root,
         now: ~U[2030-01-01 00:00:00Z],
-        process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end
+        process_scanner: fn -> {:ok, MapSet.new(["cargo"])} end,
+        build_activity_scanner: fn ->
+          {:ok, %{cwds: [Path.dirname(candidate)]}}
+        end
       )
 
     assert result.removed == []
-    assert result.skipped.rust == :active_build
+    assert result.skipped.rust == :active_target
     assert File.dir?(candidate)
+  end
+
+  test "pressure removes fresh Cargo output even when process inspection fails", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    source = Path.join(Path.dirname(target), "main.rs")
+    File.write!(source, "fn main() {}")
+    unmarked = Path.join([root, "Projects", "unmarked", "target"])
+    File.mkdir_p!(unmarked)
+    outside = cargo_target(Path.join(root, ".protected-target"))
+    link = Path.join([root, "Projects", "linked-target"])
+    File.ln_s!(outside, link)
+    xcode = xcode_candidate(root, "example")
+
+    result =
+      run(root,
+        mode: :pressure,
+        process_scanner: fn ->
+          refute File.exists?(target)
+          {:error, :unavailable}
+        end,
+        rust_activity_scanner: fn -> flunk("must not inspect the Cargo target's processes") end,
+        build_activity_scanner: fn -> flunk("must not inspect Cargo build directories") end
+      )
+
+    assert [%{kind: :rust, path: ^target}] = result.removed
+    assert result.reclaimed_bytes >= byte_size("rust build artifact")
+    assert result.skipped.rust == nil
+    assert result.skipped.xcode == :process_scan_unavailable
+    assert Enum.all?([unmarked, outside, link, xcode], &File.dir?/1)
+    assert File.read!(source) == "fn main() {}"
+  end
+
+  test "pressure protects a Cargo directory replaced before deletion", %{root: root} do
+    target = cargo_target(Path.join([root, "Projects", "example", "target"]))
+    artifact = Path.join(target, "debug/app")
+    original = Path.join(root, ".original-target")
+
+    stat_reader = fn path ->
+      if path == artifact and not File.exists?(original) do
+        File.rename!(target, original)
+        cargo_target(target)
+      end
+
+      File.lstat(path)
+    end
+
+    result = run(root, mode: :pressure, stat_reader: stat_reader)
+
+    assert result.removed == []
+    assert File.exists?(original)
+    assert File.exists?(artifact)
   end
 
   test "removes read-only backup directories and preserves external hard links", %{root: root} do
@@ -319,7 +502,10 @@ defmodule Canaryd.BuildCleanupTest do
     scanner = fn ->
       scans = Process.get(:backup_recent_scans, 0)
       Process.put(:backup_recent_scans, scans + 1)
-      if scans == 1, do: File.touch!(Path.join(target, "debug/app"), {{2029, 12, 31}, {23, 0, 0}})
+
+      if scans == 1,
+        do: File.touch!(Path.join(target, "debug/app"), {{2029, 12, 31}, {23, 30, 0}})
+
       {:ok, MapSet.new()}
     end
 
@@ -427,8 +613,8 @@ defmodule Canaryd.BuildCleanupTest do
       )
 
     assert Enum.map(stale.removed, &{&1.kind, &1.path}) == [
-             {:xcode, xcode_candidate},
-             {:rust, cargo_candidate}
+             {:rust, cargo_candidate},
+             {:xcode, xcode_candidate}
            ]
 
     refute File.exists?(xcode_candidate)
@@ -441,7 +627,7 @@ defmodule Canaryd.BuildCleanupTest do
 
     File.touch!(
       Path.join(xcode_candidate, "artifact.o"),
-      {{2029, 12, 31}, {23, 0, 0}}
+      {{2029, 12, 31}, {23, 30, 0}}
     )
 
     result = run(root, now: ~U[2030-01-01 00:00:00Z], rust_roots: [])
@@ -474,17 +660,20 @@ defmodule Canaryd.BuildCleanupTest do
       run(root,
         now: ~U[2030-01-01 00:00:00Z],
         rust_roots: [Path.join(root, "Projects")],
-        process_scanner: fn -> {:ok, MapSet.new(["xcodebuild", "cargo"])} end
+        process_scanner: fn -> {:ok, MapSet.new(["xcodebuild", "cargo"])} end,
+        build_activity_scanner: fn -> {:ok, %{cwds: [Path.dirname(cargo_candidate)]}} end
       )
 
     assert result.removed == []
 
     assert result.skipped == %{
              xcode: :active_build,
-             rust: :active_build,
+             rust: :active_target,
              bazel: nil,
              bazel_repository: nil,
-             sccache: nil
+             sccache: nil,
+             jj_workspace: nil,
+             git_worktree: nil
            }
 
     assert File.dir?(xcode_candidate)
@@ -509,7 +698,9 @@ defmodule Canaryd.BuildCleanupTest do
              rust: :process_scan_unavailable,
              bazel: :process_scan_unavailable,
              bazel_repository: :process_scan_unavailable,
-             sccache: :process_scan_unavailable
+             sccache: :process_scan_unavailable,
+             jj_workspace: :process_scan_unavailable,
+             git_worktree: :process_scan_unavailable
            }
 
     assert File.dir?(xcode_candidate)
@@ -534,11 +725,12 @@ defmodule Canaryd.BuildCleanupTest do
       run(root,
         now: ~U[2030-01-01 00:00:00Z],
         rust_roots: [Path.join(root, "Projects")],
-        process_scanner: process_scanner
+        process_scanner: process_scanner,
+        build_activity_scanner: fn -> {:ok, %{cwds: [Path.dirname(cargo_candidate)]}} end
       )
 
     assert result.removed == []
-    assert result.skipped.rust == :active_build
+    assert result.skipped.rust == :active_target
     assert File.dir?(cargo_candidate)
   end
 

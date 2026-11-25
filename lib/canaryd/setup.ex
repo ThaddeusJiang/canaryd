@@ -5,15 +5,17 @@ defmodule Canaryd.Setup do
   """
 
   @label "com.thaddeusjiang.canaryd"
-  @build_cleanup_label "com.thaddeusjiang.canaryd.build-cleanup"
-  @obsolete_agent_labels ["com.thaddeusjiang.canaryd.thermal"]
+  @obsolete_agent_labels [
+    "com.thaddeusjiang.canaryd.thermal",
+    "com.thaddeusjiang.canaryd.build-cleanup"
+  ]
 
   alias Canaryd.{Duration, NotificationHelper, Paths, PolicyConfig}
 
   def label, do: @label
 
   @doc false
-  def labels, do: [@label, @build_cleanup_label]
+  def labels, do: [@label]
 
   @doc false
   def obsolete_agent_labels, do: @obsolete_agent_labels
@@ -28,21 +30,6 @@ defmodule Canaryd.Setup do
         command: "check",
         calendar: check_calendar(config.check_interval),
         run_at_load: true,
-        escript_path: escript_path
-      },
-      %{
-        label: @build_cleanup_label,
-        command: "clean",
-        calendar: config.cleanup_at,
-        arguments:
-          if(config.retention_override,
-            do: [
-              "--build-retention",
-              Canaryd.Config.format(:build_retention, config.build_retention)
-            ],
-            else: []
-          ),
-        run_at_load: false,
         escript_path: escript_path
       }
     ]
@@ -123,12 +110,21 @@ defmodule Canaryd.Setup do
   end
 
   defp remove_agents(labels, runner) do
-    Enum.each(labels, fn label ->
-      if loaded?(label, runner), do: bootout(label, runner)
-      File.rm(plist_path(label))
+    Enum.reduce_while(labels, :ok, fn label, :ok ->
+      with :ok <- if(loaded?(label, runner), do: bootout(label, runner), else: :ok),
+           :ok <- remove_plist(label) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
     end)
+  end
 
-    :ok
+  defp remove_plist(label) do
+    case File.rm(plist_path(label)) do
+      {:error, :enoent} -> :ok
+      result -> result
+    end
   end
 
   defp bootstrap(agent, runner) do

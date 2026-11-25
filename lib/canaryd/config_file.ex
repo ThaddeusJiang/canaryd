@@ -6,7 +6,8 @@ defmodule Canaryd.ConfigFile do
   alias Canaryd.{Paths, PolicyConfig}
 
   @max_size 16_384
-  @extra_keys ["build-retention", "storage-threshold"]
+  # Accept the retired schedule key in existing files so upgrades can still start.
+  @extra_keys ["build-retention", "storage-threshold", "cleanup-time"]
 
   def path(home \\ Paths.home_dir()) do
     Path.join([home, "Library", "Application Support", "canaryd", "config.conf"])

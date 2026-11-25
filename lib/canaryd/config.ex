@@ -2,13 +2,12 @@ defmodule Canaryd.Config do
   @moduledoc "Validated CLI settings: flags, environment, saved settings, then defaults."
   alias Canaryd.{BuildCleanupConfig, Duration, Paths, PolicyConfig}
 
-  @switches [check_interval: :string, cleanup_at: :string, build_retention: :string]
+  @switches [check_interval: :string, build_retention: :string]
   def switches, do: @switches
 
   def defaults,
     do: %{
       check_interval: Duration.minutes(5),
-      cleanup_at: %{hour: 4, minute: 0},
       build_retention: BuildCleanupConfig.default_retention(),
       retention_override: false
     }
@@ -23,19 +22,10 @@ defmodule Canaryd.Config do
              format(:check_interval, Duration.minutes(policy.check_interval)),
              &parse_interval/1
            ),
-         {:ok, calendar} <-
-           value(
-             :cleanup_at,
-             overrides,
-             options,
-             PolicyConfig.format(:cleanup_time, policy.cleanup_time),
-             &parse_calendar/1
-           ),
          {:ok, retention} <- retention(overrides, options) do
       {:ok,
        %{
          check_interval: interval,
-         cleanup_at: calendar,
          build_retention: retention,
          retention_override: not is_nil(selected(:build_retention, overrides, options))
        }}
@@ -87,23 +77,6 @@ defmodule Canaryd.Config do
 
   defp parse_interval(_), do: {:error, :invalid_interval}
 
-  defp parse_calendar(raw) when is_binary(raw) and byte_size(raw) == 5 do
-    with [_, hour, minute] <- Regex.run(~r/\A([0-9]{2}):([0-9]{2})\z/, raw),
-         hour <- String.to_integer(hour),
-         minute <- String.to_integer(minute),
-         true <- hour < 24 and minute < 60 do
-      {:ok, %{hour: hour, minute: minute}}
-    else
-      _ -> {:error, :invalid_time}
-    end
-  end
-
-  defp parse_calendar(_), do: {:error, :invalid_time}
-
   def format(:check_interval, value), do: "#{Duration.to_external(value, :second)}s"
   def format(:build_retention, value), do: BuildCleanupConfig.format(value)
-
-  def format(:cleanup_at, %{hour: h, minute: m}),
-    do:
-      String.pad_leading(to_string(h), 2, "0") <> ":" <> String.pad_leading(to_string(m), 2, "0")
 end

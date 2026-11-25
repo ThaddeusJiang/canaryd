@@ -21,7 +21,7 @@ defmodule Canaryd.BuildCleanupConfigCLITest do
   end
 
   test "shows the default and persists a user retention for subsequent commands", context do
-    assert command([], context.options) == "build retention: 24h\n"
+    assert command([], context.options) == "build retention: 1h\n"
     assert command(["48h"], context.options) == "build retention: 48h\n"
     assert command([], context.options) == "build retention: 48h\n"
 
@@ -63,13 +63,13 @@ defmodule Canaryd.BuildCleanupConfigCLITest do
     output = command([], context.options)
     assert output =~ "build retention failed:"
     assert output =~ "1h..87600h"
-    refute output =~ "build retention: 24h"
+    refute output =~ "build retention: 1h"
   end
 
   test "help documents the default and configuration command", context do
     output = capture_io(fn -> CLI.main(["--help"], context.options) end)
     assert output =~ "canaryd config build-retention [Nh]"
-    assert output =~ "default: 24h"
+    assert output =~ "default: 1h"
   end
 
   defp command(arguments, options) do

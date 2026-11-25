@@ -195,7 +195,11 @@ defmodule Canaryd.Checker do
     monitor_state =
       Store.get_value(state, :disk_pressure, DiskPressureMonitor.default_state())
 
-    cleaner = Keyword.get(options, :cleaner, &BuildCleanup.run/0)
+    cleaner = Keyword.get(options, :cleaner, fn -> BuildCleanup.run(mode: :pressure) end)
+
+    emergency_cleaner =
+      Keyword.get(options, :emergency_cleaner, fn -> BuildCleanup.run(mode: :emergency) end)
+
     notifier = Keyword.get(options, :notifier, &Notifier.notify/2)
     now = Keyword.get(options, :now, DateTime.utc_now())
     usage = Map.get(sys, :disk_usage)
@@ -214,7 +218,15 @@ defmodule Canaryd.Checker do
           DiskPressureMonitor.evaluate(monitor_state, usage, now, threshold_bytes, policy)
 
         Store.put_state(state, :disk_pressure, new_state)
-        results = Enum.map(actions, &run_disk_action(events, &1, cleaner, notifier))
+
+        results =
+          Enum.map(actions, fn
+            {:emergency_cleanup, _usage} = action ->
+              run_disk_action(events, action, emergency_cleaner, notifier)
+
+            action ->
+              run_disk_action(events, action, cleaner, notifier)
+          end)
 
         %{
           status: if(is_map(usage), do: :available, else: :unavailable),
@@ -230,6 +242,14 @@ defmodule Canaryd.Checker do
   end
 
   defp run_disk_action(events, {:cleanup, usage}, cleaner, notifier) do
+    run_disk_cleanup(events, usage, cleaner, notifier, :pressure)
+  end
+
+  defp run_disk_action(events, {:emergency_cleanup, usage}, cleaner, notifier) do
+    run_disk_cleanup(events, usage, cleaner, notifier, :emergency)
+  end
+
+  defp run_disk_cleanup(events, usage, cleaner, notifier, kind) do
     case cleaner.() do
       {:ok, result} ->
         details = %{
@@ -237,31 +257,40 @@ defmodule Canaryd.Checker do
           available_bytes: usage.available_bytes,
           removed: length(result.removed),
           reclaimed_bytes: result.reclaimed_bytes,
+          terminated_build_processes: Map.get(result, :terminated_build_processes, 0),
           failures: length(result.failures),
           skipped: result.skipped
         }
 
-        Store.log_event(events, :storage, :pressure_cleanup_completed, details)
+        Store.log_event(events, :storage, cleanup_event(kind, :completed), details)
 
         if result.reclaimed_bytes == 0 do
           notifier.(
             "Mac Health",
-            "Data volume has #{Canaryd.Disk.format_bytes(usage.available_bytes)} available; no safe stale build artifact was removed."
+            "Data volume has #{Canaryd.Disk.format_bytes(usage.available_bytes)} available; no validated build artifact or cache was removed."
           )
         end
 
         :cleaned
 
       {:error, :locked} ->
-        Store.log_event(events, :storage, :pressure_cleanup_skipped, %{reason: :locked})
+        Store.log_event(events, :storage, cleanup_event(kind, :skipped), %{reason: :locked})
         :skipped
 
       {:error, reason} ->
-        Store.log_event(events, :storage, :pressure_cleanup_failed, %{reason: inspect(reason)})
+        Store.log_event(events, :storage, cleanup_event(kind, :failed), %{reason: inspect(reason)})
+
         notifier.("Mac Health", "Data volume cleanup failed: #{inspect(reason)}")
         :failed
     end
   end
+
+  defp cleanup_event(:pressure, :completed), do: :pressure_cleanup_completed
+  defp cleanup_event(:pressure, :skipped), do: :pressure_cleanup_skipped
+  defp cleanup_event(:pressure, :failed), do: :pressure_cleanup_failed
+  defp cleanup_event(:emergency, :completed), do: :emergency_cleanup_completed
+  defp cleanup_event(:emergency, :skipped), do: :emergency_cleanup_skipped
+  defp cleanup_event(:emergency, :failed), do: :emergency_cleanup_failed
 
   defp suspect_details(suspects), do: Enum.map(suspects, &process_details/1)
 

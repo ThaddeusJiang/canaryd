@@ -13,11 +13,8 @@ defmodule Canaryd.SetupTest do
              "/Users/test/.mix/escripts/canaryd"
   end
 
-  test "runs the full health check every five minutes and build cleanup daily" do
-    assert Setup.labels() == [
-             "com.thaddeusjiang.canaryd",
-             "com.thaddeusjiang.canaryd.build-cleanup"
-           ]
+  test "runs the full health check every five minutes without daily cleanup" do
+    assert Setup.labels() == ["com.thaddeusjiang.canaryd"]
 
     assert [
              %{
@@ -25,12 +22,6 @@ defmodule Canaryd.SetupTest do
                command: "check",
                calendar: calendar,
                run_at_load: true
-             },
-             %{
-               label: "com.thaddeusjiang.canaryd.build-cleanup",
-               command: "clean",
-               calendar: %{hour: 4, minute: 0},
-               run_at_load: false
              }
            ] = Setup.agent_specs("/Applications/canaryd")
 
@@ -38,7 +29,7 @@ defmodule Canaryd.SetupTest do
   end
 
   test "uses calendar slots so missed checks coalesce at wake" do
-    [agent, _cleanup_agent] = Setup.agent_specs("/Applications/canaryd")
+    [agent] = Setup.agent_specs("/Applications/canaryd")
 
     assert Setup.agent_plist(agent) =~
              ~r/<key>StartCalendarInterval<\/key>\s+<array>/
@@ -48,18 +39,11 @@ defmodule Canaryd.SetupTest do
     assert length(Regex.scan(~r/<key>Minute<\/key>/, Setup.agent_plist(agent))) == 12
   end
 
-  test "renders cleanup at 04:00 without running it during installation" do
-    [_check_agent, cleanup_agent] = Setup.agent_specs("/Applications/canaryd")
-    plist = Setup.agent_plist(cleanup_agent)
-
-    assert plist =~ ~r/<key>StartCalendarInterval<\/key>\s+<dict>/
-    assert plist =~ ~r/<key>Hour<\/key>\s+<integer>4<\/integer>/
-    assert plist =~ ~r/<key>Minute<\/key>\s+<integer>0<\/integer>/
-    refute plist =~ "<key>RunAtLoad</key>"
-  end
-
-  test "marks the dedicated thermal agent as obsolete" do
-    assert Setup.obsolete_agent_labels() == ["com.thaddeusjiang.canaryd.thermal"]
+  test "marks the old daily cleanup and dedicated thermal agents as obsolete" do
+    assert Setup.obsolete_agent_labels() == [
+             "com.thaddeusjiang.canaryd.thermal",
+             "com.thaddeusjiang.canaryd.build-cleanup"
+           ]
   end
 
   test "launchd can resolve the system load sampler" do
